@@ -25,8 +25,18 @@ describe('generatePractice', () => {
       { prompt: '2 小时 = ? 分钟', answer: '120' },
     ]);
     expect(generatePractice('concept_gap')).toEqual([
-      { prompt: '把题目中的已知条件和问题各说一遍。', answer: '按题意复述即可' },
-      { prompt: '再做一道同知识点基础题。', answer: '根据老师或系统推荐题目完成' },
+      { prompt: '一盒彩笔有 12 支，买 3 盒一共有多少支？', answer: '36' },
+      { prompt: '24 个苹果平均分给 6 个小朋友，每人分到几个？', answer: '4' },
     ]);
+  });
+
+  it('returns concrete concept_gap questions with non-placeholder answers', () => {
+    const result = generatePractice('concept_gap');
+
+    expect(result).toHaveLength(2);
+    expect(result[0].prompt).toMatch(/\d/);
+    expect(result[1].prompt).toMatch(/\d/);
+    expect(result[0].answer).not.toMatch(/按题意复述即可|根据老师或系统推荐题目完成/);
+    expect(result[1].answer).not.toMatch(/按题意复述即可|根据老师或系统推荐题目完成/);
   });
 });

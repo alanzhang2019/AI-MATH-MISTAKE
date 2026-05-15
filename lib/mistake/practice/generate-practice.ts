@@ -22,8 +22,8 @@ const practiceMap: Record<MistakeCode, [PracticeSuggestion, PracticeSuggestion]>
     { prompt: '2 小时 = ? 分钟', answer: '120' },
   ],
   concept_gap: [
-    { prompt: '把题目中的已知条件和问题各说一遍。', answer: '按题意复述即可' },
-    { prompt: '再做一道同知识点基础题。', answer: '根据老师或系统推荐题目完成' },
+    { prompt: '一盒彩笔有 12 支，买 3 盒一共有多少支？', answer: '36' },
+    { prompt: '24 个苹果平均分给 6 个小朋友，每人分到几个？', answer: '4' },
   ],
 };
 
