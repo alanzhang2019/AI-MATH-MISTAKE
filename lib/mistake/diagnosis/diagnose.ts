@@ -19,6 +19,39 @@ function toNumber(value?: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function hasCarryCondition(text: string): boolean {
+  const match = text.match(/(\d+)\s*\+\s*(\d+)/);
+
+  if (!match) {
+    return false;
+  }
+
+  const [, left, right] = match;
+  const leftDigits = left.split('').reverse();
+  const rightDigits = right.split('').reverse();
+  const maxLength = Math.max(leftDigits.length, rightDigits.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftDigit = Number(leftDigits[index] ?? '0');
+    const rightDigit = Number(rightDigits[index] ?? '0');
+
+    if (leftDigit + rightDigit >= 10) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isUnitConversionContext(text: string, lower: string): boolean {
+  const units = text.match(/厘米|米|千米|克|千克|小时|分钟/g) ?? [];
+  const distinctUnits = new Set(units);
+  const hasConversionMeaning =
+    lower.includes('换算') || lower.includes('等于') || lower.includes('化成') || lower.includes('转换');
+
+  return hasConversionMeaning || distinctUnits.size >= 2;
+}
+
 function inferMistakeCode(input: ProblemInput): { code: MistakeCode; confidence: number } {
   const text = normalizeText(input.problemText);
   const lower = text.toLowerCase();
@@ -27,7 +60,7 @@ function inferMistakeCode(input: ProblemInput): { code: MistakeCode; confidence:
 
   if (
     lower.includes('进位') ||
-    (/(\d+)\s*\+\s*(\d+)/.test(text) &&
+    (hasCarryCondition(text) &&
       studentAnswer !== null &&
       correctAnswer !== null &&
       correctAnswer - studentAnswer === 10)
@@ -35,7 +68,7 @@ function inferMistakeCode(input: ProblemInput): { code: MistakeCode; confidence:
     return { code: 'carry_mistake', confidence: 0.88 };
   }
 
-  if (/(厘米|米|千米|克|千克|小时|分钟)/.test(text) || lower.includes('单位')) {
+  if (isUnitConversionContext(text, lower)) {
     return { code: 'unit_conversion_error', confidence: 0.73 };
   }
 
