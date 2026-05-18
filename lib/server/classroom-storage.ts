@@ -5,6 +5,7 @@ import type { Scene, Stage } from '@/lib/types/stage';
 
 export const CLASSROOMS_DIR = path.join(process.cwd(), 'data', 'classrooms');
 export const CLASSROOM_JOBS_DIR = path.join(process.cwd(), 'data', 'classroom-jobs');
+export const MISTAKE_SESSIONS_DIR = path.join(process.cwd(), 'data', 'mistake-sessions');
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
@@ -16,6 +17,10 @@ export async function ensureClassroomsDir() {
 
 export async function ensureClassroomJobsDir() {
   await ensureDir(CLASSROOM_JOBS_DIR);
+}
+
+export async function ensureMistakeSessionsDir() {
+  await ensureDir(MISTAKE_SESSIONS_DIR);
 }
 
 export async function writeJsonFileAtomic(filePath: string, data: unknown) {
