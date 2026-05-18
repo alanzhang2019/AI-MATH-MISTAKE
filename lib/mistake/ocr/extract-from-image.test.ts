@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-
-import { extractFromImage } from './extract-from-image';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('extractFromImage', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
   it('normalizes structured JSON returned by the model', async () => {
+    const { extractFromImage } = await import('./extract-from-image');
     const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
     const callModel = vi.fn().mockResolvedValue(
       JSON.stringify({
@@ -38,6 +42,7 @@ describe('extractFromImage', () => {
   });
 
   it('throws when the model does not return problemText', async () => {
+    const { extractFromImage } = await import('./extract-from-image');
     const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
 
     await expect(
@@ -49,5 +54,63 @@ describe('extractFromImage', () => {
         },
       ),
     ).rejects.toThrow('problemText is required');
+  });
+
+  it('accepts JSON wrapped in markdown code fences', async () => {
+    const { extractFromImage } = await import('./extract-from-image');
+    const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
+
+    const result = await extractFromImage(
+      image,
+      { subject: 'math' },
+      {
+        callModel: vi.fn().mockResolvedValue(`\`\`\`json
+{
+  "problemText": "18 + 24 = ?",
+  "studentAnswer": "32",
+  "correctAnswerCandidate": "42",
+  "confidence": 0.76
+}
+\`\`\``),
+      },
+    );
+
+    expect(result.problemText).toBe('18 + 24 = ?');
+    expect(result.studentAnswer).toBe('32');
+    expect(result.correctAnswerCandidate).toBe('42');
+    expect(result.confidence).toBe(0.76);
+  });
+
+  it('sends the uploaded image using AI SDK image content parts', async () => {
+    const callLLM = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        problemText: '识别到一张图',
+        confidence: 0.2,
+      }),
+    });
+    const resolveModel = vi.fn().mockResolvedValue({
+      model: { provider: 'kimi', modelId: 'moonshotai/kimi-k2.6' },
+    });
+
+    vi.doMock('@/lib/ai/llm', () => ({ callLLM }));
+    vi.doMock('@/lib/server/resolve-model', () => ({ resolveModel }));
+
+    const { extractFromImage } = await import('./extract-from-image');
+    const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
+
+    await extractFromImage(image, { subject: 'math' });
+
+    expect(callLLM).toHaveBeenCalledTimes(1);
+    const [params] = callLLM.mock.calls[0];
+    const content = params.messages[0].content as Array<Record<string, unknown>>;
+    const imagePart = content.find((part) => part.type === 'image');
+    const filePart = content.find((part) => part.type === 'file');
+
+    expect(imagePart).toMatchObject({
+      type: 'image',
+      mimeType: 'image/png',
+    });
+    expect(imagePart?.image).toBeDefined();
+    expect(filePart).toBeUndefined();
   });
 });

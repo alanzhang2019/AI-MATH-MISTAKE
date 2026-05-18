@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 
 import { callLLM } from '@/lib/ai/llm';
@@ -12,6 +13,17 @@ const extractionSchema = z.object({
   correctAnswerCandidate: z.string().optional(),
   confidence: z.number().optional(),
 });
+
+function parseExtractionJson(rawModelText: string) {
+  const trimmed = rawModelText.trim();
+  const withoutCodeFence = trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const jsonText = withoutCodeFence.match(/\{[\s\S]*\}/)?.[0] ?? withoutCodeFence;
+
+  return extractionSchema.parse(JSON.parse(jsonText));
+}
 
 export interface ExtractDependencies {
   callModel?: (input: { image: File; options: ExtractImageOptions }) => Promise<string>;
@@ -42,8 +54,8 @@ async function callVisionModel(input: {
               text: `subject=${input.options.subject}; grade=${input.options.grade ?? 'unknown'}`,
             },
             {
-              type: 'file',
-              data: await input.image.arrayBuffer(),
+              type: 'image',
+              image: Buffer.from(await input.image.arrayBuffer()),
               mimeType: input.image.type,
             },
           ],
@@ -65,7 +77,7 @@ export async function extractFromImage(
     image,
     options,
   });
-  const parsed = extractionSchema.parse(JSON.parse(rawModelText));
+  const parsed = parseExtractionJson(rawModelText);
 
   return normalizeExtraction({
     ...parsed,
