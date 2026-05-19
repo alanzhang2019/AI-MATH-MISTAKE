@@ -41,7 +41,7 @@ describe('extractFromImage', () => {
     });
   });
 
-  it('throws when the model does not return problemText', async () => {
+  it('returns an empty confirmation draft when the model does not return problemText', async () => {
     const { extractFromImage } = await import('./extract-from-image');
     const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
 
@@ -53,7 +53,12 @@ describe('extractFromImage', () => {
           callModel: vi.fn().mockResolvedValue(JSON.stringify({ confidence: 0.2 })),
         },
       ),
-    ).rejects.toThrow('problemText is required');
+    ).resolves.toEqual({
+      problemText: '',
+      confidence: 0.2,
+      needsUserConfirmation: true,
+      rawModelText: JSON.stringify({ confidence: 0.2 }),
+    });
   });
 
   it('accepts JSON wrapped in markdown code fences', async () => {

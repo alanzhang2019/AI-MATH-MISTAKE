@@ -506,6 +506,24 @@ describe('fetchServerProviders — provider availability sync', () => {
     expect(store.getState().modelId).toBe('gpt-4o');
   });
 
+  it('recovers the first server model when provider is selected but modelId is empty', async () => {
+    const store = await getStore();
+
+    store.getState().setModel('openai', 'gpt-4o-mini');
+    expect(store.getState().providerId).toBe('openai');
+    expect(store.getState().modelId).toBe('gpt-4o-mini');
+
+    store.setState({ modelId: '' });
+    expect(store.getState().providerId).toBe('openai');
+    expect(store.getState().modelId).toBe('');
+
+    mockServerResponse({ providers: { openai: { models: ['gpt-4o-mini'] } } });
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState().providerId).toBe('openai');
+    expect(store.getState().modelId).toBe('gpt-4o-mini');
+  });
+
   // ---- Error handling ----
 
   it('does not modify state when fetch returns non-ok response', async () => {
@@ -584,6 +602,23 @@ describe('fetchServerProviders — TTS stale selection', () => {
     await store.getState().fetchServerProviders();
 
     expect(store.getState().ttsProviderId).toBe('openai-tts');
+  });
+
+  it('auto-selects the first server TTS provider when browser-native was kept only because none existed before', async () => {
+    const store = await getStore();
+
+    expect(store.getState().ttsProviderId).toBe('browser-native-tts');
+    expect(store.getState().ttsVoice).toBe('default');
+
+    mockServerResponse({});
+    await store.getState().fetchServerProviders();
+    expect(store.getState().ttsProviderId).toBe('browser-native-tts');
+
+    mockServerResponse({ tts: { 'openai-tts': {} } });
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState().ttsProviderId).toBe('openai-tts');
+    expect(store.getState().ttsVoice).toBe('alloy');
   });
 });
 

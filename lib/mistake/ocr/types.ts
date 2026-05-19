@@ -8,7 +8,7 @@ export interface MistakeImageExtraction {
 }
 
 export interface MistakeImageExtractionDraft {
-  problemText: string;
+  problemText?: string;
   studentAnswer?: string;
   correctAnswerCandidate?: string;
   confidence?: number;

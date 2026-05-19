@@ -11,12 +11,8 @@ export function normalizeExtraction(
 ): MistakeImageExtraction {
   const problemText = normalizeText(draft.problemText);
 
-  if (!problemText) {
-    throw new Error('problemText is required');
-  }
-
   return {
-    problemText,
+    problemText: problemText ?? '',
     ...(normalizeText(draft.studentAnswer)
       ? { studentAnswer: normalizeText(draft.studentAnswer) }
       : {}),

@@ -14,6 +14,9 @@ import { useSettingsStore } from '@/lib/store/settings';
 import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 import { getAvailableProvidersWithVoices } from '@/lib/audio/voice-resolver';
 import { getVoxCPMProviderOptions, useVoxCPMVoiceProfiles } from '@/lib/audio/voxcpm-voices';
+import { updateMistakeSession } from '@/lib/mistake/session/client';
+import { resolveAgentModeForGeneration } from '@/lib/mistake/openmaic/resolve-agent-mode';
+import { buildClientTTSRequestConfig } from '@/lib/audio/build-client-tts-request';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import {
   loadImageMapping,
@@ -618,7 +621,12 @@ function GenerationPreviewContent() {
         persona?: string;
       }> = [];
 
-      if (settings.agentMode === 'auto') {
+      const agentMode = resolveAgentModeForGeneration({
+        sourceMode: currentSession.sourceMode,
+        agentMode: settings.agentMode,
+      });
+
+      if (agentMode === 'auto') {
         const agentStepIdx = activeSteps.findIndex((s) => s.id === 'agent-generation');
         if (agentStepIdx >= 0) setCurrentStepIndex(agentStepIdx);
 
@@ -888,6 +896,7 @@ function GenerationPreviewContent() {
           const audioId = `tts_${action.id}`;
           action.audioId = audioId;
           try {
+            const requestConfig = buildClientTTSRequestConfig(settings.ttsProviderId, ttsProviderConfig);
             const resp = await fetch('/api/generate/tts', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -898,12 +907,8 @@ function GenerationPreviewContent() {
                 ttsModelId: ttsProviderConfig?.modelId,
                 ttsVoice: settings.ttsVoice,
                 ttsSpeed: settings.ttsSpeed,
-                ttsApiKey: ttsProviderConfig?.apiKey || undefined,
-                ttsBaseUrl:
-                  ttsProviderConfig?.serverBaseUrl ||
-                  ttsProviderConfig?.baseUrl ||
-                  ttsProviderConfig?.customDefaultBaseUrl ||
-                  undefined,
+                ttsApiKey: requestConfig.ttsApiKey,
+                ttsBaseUrl: requestConfig.ttsBaseUrl,
                 ttsProviderOptions: providerOptions,
               }),
               signal,
@@ -954,8 +959,18 @@ function GenerationPreviewContent() {
           agents,
           userProfile,
           languageDirective,
+          sourceMode: currentSession.sourceMode,
+          mistakeSessionId: currentSession.mistakeSessionId,
         }),
       );
+
+      if (currentSession.sourceMode === 'mistake' && currentSession.mistakeSessionId) {
+        await updateMistakeSession(currentSession.mistakeSessionId, {
+          classroomId: stage.id,
+          status: 'live',
+          error: '',
+        });
+      }
 
       sessionStorage.removeItem('generationSession');
       await store.saveToStorage();

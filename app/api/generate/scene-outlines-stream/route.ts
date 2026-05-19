@@ -39,6 +39,59 @@ const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
 
+export function createSseWriter(params: {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  encoder: TextEncoder;
+  signal?: AbortSignal;
+  onClose?: () => void;
+}) {
+  const { controller, encoder, signal, onClose } = params;
+  let closed = false;
+
+  const close = () => {
+    if (closed) return false;
+    closed = true;
+    if (signal) {
+      signal.removeEventListener('abort', close);
+    }
+    onClose?.();
+    try {
+      controller.close();
+    } catch {
+      // Ignore duplicate close errors after the client disconnects.
+    }
+    return true;
+  };
+
+  const send = (payload: string) => {
+    if (closed || signal?.aborted) return false;
+    try {
+      controller.enqueue(encoder.encode(payload));
+      return true;
+    } catch {
+      close();
+      return false;
+    }
+  };
+
+  if (signal) {
+    signal.addEventListener('abort', close, { once: true });
+  }
+
+  return {
+    sendComment(comment: string) {
+      return send(`:${comment}\n\n`);
+    },
+    sendEvent(event: unknown) {
+      return send(`data: ${JSON.stringify(event)}\n\n`);
+    },
+    close,
+    isClosed() {
+      return closed || !!signal?.aborted;
+    },
+  };
+}
+
 /**
  * Extract the languageDirective from the streamed wrapper JSON.
  * Matches `"languageDirective":"<value>"` in partial JSON like:
@@ -233,25 +286,30 @@ export async function POST(req: NextRequest) {
     // Create SSE stream with heartbeat to prevent connection timeout
     const encoder = new TextEncoder();
     const HEARTBEAT_INTERVAL_MS = 15_000;
+    const signal = req.signal;
     const stream = new ReadableStream({
       async start(controller) {
         // Heartbeat: periodically send SSE comments to keep the connection alive.
         let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-        const startHeartbeat = () => {
-          stopHeartbeat();
-          heartbeatTimer = setInterval(() => {
-            try {
-              controller.enqueue(encoder.encode(`:heartbeat\n\n`));
-            } catch {
-              stopHeartbeat();
-            }
-          }, HEARTBEAT_INTERVAL_MS);
-        };
         const stopHeartbeat = () => {
           if (heartbeatTimer) {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;
           }
+        };
+        const writer = createSseWriter({
+          controller,
+          encoder,
+          signal,
+          onClose: stopHeartbeat,
+        });
+        const startHeartbeat = () => {
+          stopHeartbeat();
+          heartbeatTimer = setInterval(() => {
+            if (!writer.sendComment('heartbeat')) {
+              stopHeartbeat();
+            }
+          }, HEARTBEAT_INTERVAL_MS);
         };
 
         const MAX_STREAM_RETRIES = 2;
@@ -284,6 +342,7 @@ export async function POST(req: NextRequest) {
 
           for (let attempt = 1; attempt <= MAX_STREAM_RETRIES + 1; attempt++) {
             try {
+              if (writer.isClosed()) break;
               let fullText = '';
               parsedOutlines = [];
               languageDirective = null;
@@ -294,17 +353,21 @@ export async function POST(req: NextRequest) {
               ).textStream;
 
               for await (const chunk of textStream) {
+                if (writer.isClosed()) break;
                 fullText += chunk;
 
                 // Try to extract language directive early
                 if (!languageDirective) {
                   languageDirective = extractLanguageDirective(fullText);
                   if (languageDirective) {
-                    const ldEvent = JSON.stringify({
+                    if (
+                      !writer.sendEvent({
                       type: 'languageDirective',
                       data: languageDirective,
-                    });
-                    controller.enqueue(encoder.encode(`data: ${ldEvent}\n\n`));
+                      })
+                    ) {
+                      break;
+                    }
                   }
                 }
 
@@ -319,14 +382,19 @@ export async function POST(req: NextRequest) {
                   };
                   parsedOutlines.push(enriched);
 
-                  const event = JSON.stringify({
+                  if (
+                    !writer.sendEvent({
                     type: 'outline',
                     data: enriched,
                     index: parsedOutlines.length - 1,
-                  });
-                  controller.enqueue(encoder.encode(`data: ${event}\n\n`));
+                    })
+                  ) {
+                    break;
+                  }
                 }
               }
+
+              if (writer.isClosed()) break;
 
               // Validate: got outlines?
               if (parsedOutlines.length > 0) break;
@@ -343,16 +411,19 @@ export async function POST(req: NextRequest) {
                 log.warn(
                   `Empty outlines (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}), retrying...`,
                 );
-                // Notify client a retry is happening
-                const retryEvent = JSON.stringify({
+                if (
+                  !writer.sendEvent({
                   type: 'retry',
                   attempt,
                   maxAttempts: MAX_STREAM_RETRIES + 1,
-                });
-                controller.enqueue(encoder.encode(`data: ${retryEvent}\n\n`));
+                  })
+                ) {
+                  break;
+                }
               }
             } catch (error) {
               lastError = error instanceof Error ? error.message : String(error);
+              if (writer.isClosed()) break;
               log.warn(
                 `Outlines stream error detail (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}): ${lastError}`,
               );
@@ -362,47 +433,52 @@ export async function POST(req: NextRequest) {
                   `Stream error (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}), retrying...`,
                   error,
                 );
-                const retryEvent = JSON.stringify({
+                if (
+                  !writer.sendEvent({
                   type: 'retry',
                   attempt,
                   maxAttempts: MAX_STREAM_RETRIES + 1,
-                });
-                controller.enqueue(encoder.encode(`data: ${retryEvent}\n\n`));
+                  })
+                ) {
+                  break;
+                }
                 continue;
               }
             }
           }
 
+          if (writer.isClosed()) {
+            return;
+          }
+
           if (parsedOutlines.length > 0) {
             // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
             const uniquifiedOutlines = uniquifyMediaElementIds(parsedOutlines);
-            // Send done event with all outlines
-            const doneEvent = JSON.stringify({
+            writer.sendEvent({
               type: 'done',
               outlines: uniquifiedOutlines,
               languageDirective: languageDirective || DEFAULT_LANGUAGE_DIRECTIVE,
             });
-            controller.enqueue(encoder.encode(`data: ${doneEvent}\n\n`));
           } else {
             // All retries exhausted, no outlines produced
             log.error(
               `Outline generation failed after ${MAX_STREAM_RETRIES + 1} attempts: ${lastError}`,
             );
-            const errorEvent = JSON.stringify({
+            writer.sendEvent({
               type: 'error',
               error: lastError || 'Failed to generate outlines',
             });
-            controller.enqueue(encoder.encode(`data: ${errorEvent}\n\n`));
           }
         } catch (error) {
-          const errorEvent = JSON.stringify({
-            type: 'error',
-            error: error instanceof Error ? error.message : String(error),
-          });
-          controller.enqueue(encoder.encode(`data: ${errorEvent}\n\n`));
+          if (!writer.isClosed()) {
+            writer.sendEvent({
+              type: 'error',
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         } finally {
           stopHeartbeat();
-          controller.close();
+          writer.close();
         }
       },
     });

@@ -37,6 +37,9 @@ export interface ClassroomGenerationJob {
     url: string;
     scenesCount: number;
   };
+  linkage?: {
+    sessionId?: string;
+  };
   error?: string;
 }
 
@@ -100,6 +103,7 @@ export function isValidClassroomJobId(jobId: string): boolean {
 export async function createClassroomGenerationJob(
   jobId: string,
   input: GenerateClassroomInput,
+  linkage?: ClassroomGenerationJob['linkage'],
 ): Promise<ClassroomGenerationJob> {
   const now = new Date().toISOString();
   const job: ClassroomGenerationJob = {
@@ -112,6 +116,7 @@ export async function createClassroomGenerationJob(
     updatedAt: now,
     inputSummary: buildInputSummary(input),
     scenesGenerated: 0,
+    ...(linkage ? { linkage } : {}),
   };
 
   await ensureClassroomJobsDir();

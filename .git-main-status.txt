@@ -1,4 +1,0 @@
- M lib/mistake/ocr/extract-from-image.test.ts
- M lib/mistake/ocr/extract-from-image.ts
-?? .git-spec-check.txt
-?? ocr-e2e.log

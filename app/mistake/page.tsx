@@ -1,6 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+import { buildMistakeGenerationSession } from '@/lib/mistake/openmaic/build-generation-session';
+import { createMistakeSession } from '@/lib/mistake/session/client';
+import { shouldSkipConfirmation } from '@/lib/mistake/session/confidence-policy';
 
 type ExtractResponse = {
   success: true;
@@ -13,28 +18,23 @@ type ExtractResponse = {
   };
 };
 
-type AnalyzeResponse = {
-  diagnosis: {
-    guessedMistake: string;
-    explanationForChild: string;
-    practiceSuggestions: Array<{ prompt: string; answer: string }>;
-    parentSummary?: {
-      headline: string;
-      nextStep: string;
-    };
-  };
-};
-
-type PageStatus = 'idle' | 'extracting' | 'confirming' | 'analyzing' | 'done' | 'error';
+type PageStatus =
+  | 'idle'
+  | 'extracting'
+  | 'confirming'
+  | 'creating_session'
+  | 'starting_preview'
+  | 'error';
 
 export default function MistakePage() {
+  const router = useRouter();
   const [image, setImage] = useState<File | null>(null);
   const [problemText, setProblemText] = useState('');
   const [studentAnswer, setStudentAnswer] = useState('');
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [status, setStatus] = useState<PageStatus>('idle');
   const [error, setError] = useState('');
-  const [diagnosis, setDiagnosis] = useState<AnalyzeResponse['diagnosis'] | null>(null);
+  const [lastExtraction, setLastExtraction] = useState<ExtractResponse['extraction'] | null>(null);
 
   const previewUrl = useMemo(() => {
     if (!image) {
@@ -43,6 +43,7 @@ export default function MistakePage() {
 
     return URL.createObjectURL(image);
   }, [image]);
+  const isStartingPreview = status === 'creating_session' || status === 'starting_preview';
 
   useEffect(() => {
     return () => {
@@ -61,7 +62,6 @@ export default function MistakePage() {
 
     setStatus('extracting');
     setError('');
-    setDiagnosis(null);
 
     const formData = new FormData();
     formData.set('image', image);
@@ -72,60 +72,89 @@ export default function MistakePage() {
       body: formData,
     });
     const json = (await response.json()) as ExtractResponse | { error?: string };
+    const extractError = 'error' in json ? json.error : undefined;
 
     if (!response.ok || !('extraction' in json)) {
       setStatus('error');
-      setError(json.error ?? '图片提取失败');
+      setError(extractError ?? '图片提取失败');
       return;
     }
 
     setProblemText(json.extraction.problemText);
     setStudentAnswer(json.extraction.studentAnswer ?? '');
     setCorrectAnswer(json.extraction.correctAnswerCandidate ?? '');
-    setStatus('confirming');
-  }
+    setLastExtraction(json.extraction);
 
-  async function handleAnalyze() {
-    setStatus('analyzing');
-    setError('');
-
-    const response = await fetch('/api/mistake/session/analyze', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        grade: 4,
-        subject: 'math',
-        source: 'photo',
-        problemText,
-        studentAnswer: studentAnswer || undefined,
-        correctAnswer: correctAnswer || undefined,
-      }),
-    });
-    const json = (await response.json()) as AnalyzeResponse | { error?: string };
-
-    if (!response.ok || !('diagnosis' in json)) {
-      setStatus('error');
-      setError(json.error ?? '错题诊断失败');
+    if (shouldSkipConfirmation(json.extraction)) {
+      await startMistakeFlow({
+        extraction: json.extraction,
+        problemText: json.extraction.problemText,
+        studentAnswer: json.extraction.studentAnswer,
+        correctAnswer: json.extraction.correctAnswerCandidate,
+      });
       return;
     }
 
-    setDiagnosis(json.diagnosis);
-    setStatus('done');
+    setStatus('confirming');
+  }
+
+  async function startMistakeFlow(input: {
+    extraction: ExtractResponse['extraction'];
+    problemText: string;
+    studentAnswer?: string;
+    correctAnswer?: string;
+  }) {
+    setStatus('creating_session');
+    setError('');
+
+    try {
+      const created = await createMistakeSession({
+        source: 'photo',
+        ocr: input.extraction,
+        confirmed: {
+          problemText: input.problemText,
+          ...(input.studentAnswer ? { studentAnswer: input.studentAnswer } : {}),
+          ...(input.correctAnswer ? { correctAnswer: input.correctAnswer } : {}),
+        },
+        status: 'draft',
+      });
+
+      setStatus('starting_preview');
+
+      const generationSession = buildMistakeGenerationSession({
+        mistakeSessionId: created.session.id,
+        input: {
+          grade: 4,
+          subject: 'math',
+          source: 'photo',
+          problemText: input.problemText,
+          ...(input.studentAnswer ? { studentAnswer: input.studentAnswer } : {}),
+          ...(input.correctAnswer ? { correctAnswer: input.correctAnswer } : {}),
+        },
+      });
+      sessionStorage.setItem('generationSession', JSON.stringify(generationSession));
+
+      router.push('/generation-preview');
+    } catch (flowError) {
+      setStatus('error');
+      setError(flowError instanceof Error ? flowError.message : '进入讲解失败');
+    }
   }
 
   return (
     <main style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 720 }}>
       <h1>AI 错题讲解机</h1>
-      <p>拍一张单题图片，先识别题面并确认，再进入现有的错因诊断与讲解链路。</p>
+      <p>拍照或上传一道题，系统会尽快把你带到讲解播放页。</p>
 
       <input
         accept="image/*"
+        capture="environment"
         type="file"
         onChange={(event) => {
           setImage(event.target.files?.[0] ?? null);
           setStatus('idle');
           setError('');
-          setDiagnosis(null);
+          setLastExtraction(null);
         }}
       />
 
@@ -138,53 +167,64 @@ export default function MistakePage() {
       ) : null}
 
       <button disabled={status === 'extracting' || !image} onClick={handleExtract} type="button">
-        {status === 'extracting' ? '识别中...' : '识别题目'}
+        {status === 'extracting' ? '识别中...' : '拍照识题'}
       </button>
 
-      {(status === 'confirming' || status === 'analyzing' || status === 'done') && (
-        <section style={{ display: 'grid', gap: 8 }}>
-          <label>
+      {status === 'confirming' && (
+        <section style={{ display: 'grid', gap: 12 }}>
+          <label style={{ display: 'grid', gap: 6 }}>
             题干
             <textarea
+              aria-label="题干"
               rows={4}
               value={problemText}
               onChange={(event) => setProblemText(event.target.value)}
+              style={{ width: '100%', minHeight: 112, padding: 10, boxSizing: 'border-box' }}
             />
           </label>
-          <label>
+          <label style={{ display: 'grid', gap: 6 }}>
             学生答案
-            <input value={studentAnswer} onChange={(event) => setStudentAnswer(event.target.value)} />
+            <input
+              aria-label="学生答案"
+              value={studentAnswer}
+              onChange={(event) => setStudentAnswer(event.target.value)}
+              style={{ width: '100%', padding: 10, boxSizing: 'border-box' }}
+            />
           </label>
-          <label>
+          <label style={{ display: 'grid', gap: 6 }}>
             正确答案候选
-            <input value={correctAnswer} onChange={(event) => setCorrectAnswer(event.target.value)} />
+            <input
+              aria-label="正确答案候选"
+              value={correctAnswer}
+              onChange={(event) => setCorrectAnswer(event.target.value)}
+              style={{ width: '100%', padding: 10, boxSizing: 'border-box' }}
+            />
           </label>
           <button
-            disabled={status === 'analyzing' || problemText.trim().length === 0}
-            onClick={handleAnalyze}
+            disabled={isStartingPreview || problemText.trim().length === 0}
+            onClick={() => {
+              if (!lastExtraction) {
+                setStatus('error');
+                setError('题目识别结果已丢失，请重新拍照');
+                return;
+              }
+
+              void startMistakeFlow({
+                extraction: lastExtraction,
+                problemText,
+                studentAnswer: studentAnswer || undefined,
+                correctAnswer: correctAnswer || undefined,
+              });
+            }}
             type="button"
+            style={{ justifySelf: 'start', padding: '10px 16px' }}
           >
-            {status === 'analyzing' ? '诊断中...' : '确认并诊断'}
+            {isStartingPreview ? '正在进入讲解...' : '开始讲解'}
           </button>
         </section>
       )}
 
       {error ? <p>{error}</p> : null}
-
-      {diagnosis ? (
-        <section style={{ display: 'grid', gap: 8 }}>
-          <p>错因：{diagnosis.guessedMistake}</p>
-          <p>讲解：{diagnosis.explanationForChild}</p>
-          {diagnosis.parentSummary ? <p>家长提示：{diagnosis.parentSummary.headline}</p> : null}
-          <ul>
-            {diagnosis.practiceSuggestions.map((item) => (
-              <li key={item.prompt}>
-                {item.prompt}（答案：{item.answer}）
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </main>
   );
 }

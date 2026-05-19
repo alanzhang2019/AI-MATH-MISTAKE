@@ -36,4 +36,21 @@ describe('normalizeExtraction', () => {
       needsUserConfirmation: true,
     });
   });
+
+  it('keeps an empty problemText as a confirmation draft instead of throwing', () => {
+    const result = normalizeExtraction({
+      problemText: '   ',
+      studentAnswer: '53',
+      confidence: 0.2,
+      rawModelText: '{"studentAnswer":"53"}',
+    });
+
+    expect(result).toEqual({
+      problemText: '',
+      studentAnswer: '53',
+      confidence: 0.2,
+      needsUserConfirmation: true,
+      rawModelText: '{"studentAnswer":"53"}',
+    });
+  });
 });

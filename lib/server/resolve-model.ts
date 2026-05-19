@@ -8,7 +8,12 @@
 import type { NextRequest } from 'next/server';
 import { getModel, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
 import type { ThinkingConfig } from '@/lib/types/provider';
-import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
+import {
+  getServerProviders,
+  resolveApiKey,
+  resolveBaseUrl,
+  resolveProxy,
+} from '@/lib/server/provider-config';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 
 export interface ResolvedModel extends ModelWithInfo {
@@ -38,8 +43,16 @@ export async function resolveModel(params: {
   providerType?: string;
   thinkingConfig?: ThinkingConfig;
 }): Promise<ResolvedModel> {
-  const modelString = params.modelString || process.env.DEFAULT_MODEL || 'gpt-5.4-mini';
-  const { providerId, modelId } = parseModelString(modelString);
+  let modelString = params.modelString || process.env.DEFAULT_MODEL || 'gpt-5.4-mini';
+  let { providerId, modelId } = parseModelString(modelString);
+
+  if (providerId && !modelId) {
+    const recoveredModelId = getServerProviders()[providerId]?.models?.[0];
+    if (recoveredModelId) {
+      modelId = recoveredModelId;
+      modelString = `${providerId}:${recoveredModelId}`;
+    }
+  }
 
   // SSRF validation applies only to client-supplied base URLs.
   // Server-configured URLs (e.g. OLLAMA_BASE_URL from env/YAML) flow through

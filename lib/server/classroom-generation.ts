@@ -36,6 +36,8 @@ const log = createLogger('Classroom');
 
 export interface GenerateClassroomInput {
   requirement: string;
+  modelString?: string;
+  maxScenes?: number;
   pdfContent?: { text: string; images: string[] };
   enableWebSearch?: boolean;
   webSearchProviderId?: WebSearchProviderId;
@@ -72,6 +74,30 @@ export interface GenerateClassroomResult {
   scenes: Scene[];
   scenesCount: number;
   createdAt: string;
+}
+
+export function resolveClassroomModelString(input: GenerateClassroomInput): string | undefined {
+  return (
+    input.modelString ||
+    process.env.MISTAKE_CLASSROOM_MODEL ||
+    process.env.MISTAKE_OCR_MODEL ||
+    process.env.DEFAULT_MODEL
+  );
+}
+
+export function shouldPersistPlayableClassroom(
+  scenesGenerated: number,
+  playablePersisted: boolean,
+): boolean {
+  return !playablePersisted && scenesGenerated > 0;
+}
+
+export function limitSceneOutlines<T>(outlines: T[], maxScenes?: number): T[] {
+  if (!maxScenes || maxScenes < 1 || outlines.length <= maxScenes) {
+    return outlines;
+  }
+
+  return outlines.slice(0, maxScenes);
 }
 
 function createInMemoryStore(stage: Stage): StageStore {
@@ -166,6 +192,7 @@ export async function generateClassroom(
   options: {
     baseUrl: string;
     onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
+    onPlayable?: (result: GenerateClassroomResult) => Promise<void> | void;
   },
 ): Promise<GenerateClassroomResult> {
   const { requirement, pdfContent } = input;
@@ -183,7 +210,9 @@ export async function generateClassroom(
     modelString,
     providerId,
     apiKey,
-  } = await resolveModel({});
+  } = await resolveModel({
+    modelString: resolveClassroomModelString(input),
+  });
   log.info(`Using server-configured model: ${modelString}`);
 
   // Fail fast if the resolved provider has no API key configured
@@ -296,7 +325,8 @@ export async function generateClassroom(
     throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
   }
 
-  const { languageDirective, outlines } = outlinesResult.data;
+  const { languageDirective } = outlinesResult.data;
+  const outlines = limitSceneOutlines(outlinesResult.data.outlines, input.maxScenes);
   log.info(`Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective})`);
 
   await options.onProgress?.({
@@ -358,6 +388,7 @@ export async function generateClassroom(
 
   log.info('Stage 2: Generating scene content and actions...');
   let generatedScenes = 0;
+  let playablePersisted = false;
 
   for (const [index, outline] of outlines.entries()) {
     const safeOutline = applyOutlineFallbacks(outline, true);
@@ -398,6 +429,29 @@ export async function generateClassroom(
       scenesGenerated: generatedScenes,
       totalScenes: outlines.length,
     });
+
+    if (shouldPersistPlayableClassroom(generatedScenes, playablePersisted)) {
+      const playableScenes = store.getState().scenes;
+      const persisted = await persistClassroom(
+        {
+          id: stageId,
+          stage,
+          scenes: playableScenes,
+        },
+        options.baseUrl,
+      );
+
+      playablePersisted = true;
+
+      await options.onPlayable?.({
+        id: persisted.id,
+        url: persisted.url,
+        stage,
+        scenes: playableScenes,
+        scenesCount: playableScenes.length,
+        createdAt: persisted.createdAt,
+      });
+    }
   }
 
   const scenes = store.getState().scenes;

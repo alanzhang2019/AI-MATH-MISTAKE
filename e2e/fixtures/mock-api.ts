@@ -77,6 +77,67 @@ export class MockApi {
     });
   }
 
+  async mockMistakeExtract(response: Record<string, unknown>) {
+    await this.page.route('**/api/mistake/session/extract', (route) => {
+      route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      });
+    });
+  }
+
+  async mockCreateMistakeSession(response: Record<string, unknown>) {
+    await this.page.route('**/api/mistake/session', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+
+      route.fulfill({
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      });
+    });
+  }
+
+  async mockMistakeGenerateClassroom(response: Record<string, unknown>) {
+    await this.page.route('**/api/mistake/session/generate-classroom', (route) => {
+      route.fulfill({
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      });
+    });
+  }
+
+  async mockGetMistakeSession(responses: Array<Record<string, unknown>>) {
+    let index = 0;
+
+    await this.page.route('**/api/mistake/session/*', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+
+      const body = responses[Math.min(index, responses.length - 1)];
+      index += 1;
+
+      route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    });
+  }
+
+  async mockPatchMistakeSession(response: Record<string, unknown>) {
+    await this.page.route('**/api/mistake/session/*', (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+
+      route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      });
+    });
+  }
+
   /** Set up API mocks for the generation flow. Note: server-providers is already mocked by the base fixture. */
   async setupGenerationMocks(stageId?: string) {
     await this.mockSceneOutlinesStream();

@@ -12,6 +12,7 @@ import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
+import { updateMistakeSession } from '@/lib/mistake/session/client';
 
 const log = createLogger('Classroom');
 
@@ -27,8 +28,23 @@ export default function ClassroomDetailPage() {
   const generationStartedRef = useRef(false);
 
   const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({
-    onComplete: () => {
+    onComplete: async () => {
       log.info('[Classroom] All scenes generated');
+
+      try {
+        const genParamsStr = sessionStorage.getItem('generationParams');
+        const params = genParamsStr ? (JSON.parse(genParamsStr) as { mistakeSessionId?: string }) : null;
+
+        if (params?.mistakeSessionId) {
+          await updateMistakeSession(params.mistakeSessionId, {
+            classroomId,
+            status: 'completed',
+            error: '',
+          });
+        }
+      } catch (err) {
+        log.warn('[Classroom] Failed to mark mistake session completed:', err);
+      }
     },
   });
 
