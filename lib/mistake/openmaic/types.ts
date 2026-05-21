@@ -6,4 +6,6 @@ export interface MistakeClassroomInput {
   problemText: string;
   studentAnswer?: string;
   correctAnswer?: string;
+  studentName?: string;
+  teachingStyle?: string;
 }

@@ -1,11 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { buildMistakeGenerationSession } from '@/lib/mistake/openmaic/build-generation-session';
-import { createMistakeSession } from '@/lib/mistake/session/client';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { useI18n } from '@/lib/hooks/use-i18n';
 import { shouldSkipConfirmation } from '@/lib/mistake/session/confidence-policy';
+import { getHomeworkHomeContent } from '@/lib/mistake/ui/content';
+import { buildPendingRecognizeImageUrl } from '@/lib/mistake/ui/pending-recognize-image';
+import { startMistakePreview } from '@/lib/mistake/ui/start-mistake-preview';
+import { writePendingRecognizeSession } from '@/lib/mistake/ui/recognize-session';
+import { useUserProfileStore } from '@/lib/store/user-profile';
+import { MistakeOnboarding } from '@/components/onboarding/mistake-onboarding';
+
+import { Camera } from 'lucide-react';
 
 type ExtractResponse = {
   success: true;
@@ -21,20 +30,24 @@ type ExtractResponse = {
 type PageStatus =
   | 'idle'
   | 'extracting'
-  | 'confirming'
   | 'creating_session'
   | 'starting_preview'
   | 'error';
 
 export default function MistakePage() {
   const router = useRouter();
+  const { t } = useI18n();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [image, setImage] = useState<File | null>(null);
-  const [problemText, setProblemText] = useState('');
-  const [studentAnswer, setStudentAnswer] = useState('');
-  const [correctAnswer, setCorrectAnswer] = useState('');
   const [status, setStatus] = useState<PageStatus>('idle');
   const [error, setError] = useState('');
-  const [lastExtraction, setLastExtraction] = useState<ExtractResponse['extraction'] | null>(null);
+  const homeContent = getHomeworkHomeContent(t);
+
+  const { isInitialized, hasLoadedFromServer, fetchProfile, studentName, grade, teachingStyle } = useUserProfileStore();
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   const previewUrl = useMemo(() => {
     if (!image) {
@@ -44,6 +57,7 @@ export default function MistakePage() {
     return URL.createObjectURL(image);
   }, [image]);
   const isStartingPreview = status === 'creating_session' || status === 'starting_preview';
+  const isExtracting = status === 'extracting';
 
   useEffect(() => {
     return () => {
@@ -80,60 +94,41 @@ export default function MistakePage() {
       return;
     }
 
-    setProblemText(json.extraction.problemText);
-    setStudentAnswer(json.extraction.studentAnswer ?? '');
-    setCorrectAnswer(json.extraction.correctAnswerCandidate ?? '');
-    setLastExtraction(json.extraction);
-
     if (shouldSkipConfirmation(json.extraction)) {
-      await startMistakeFlow({
-        extraction: json.extraction,
-        problemText: json.extraction.problemText,
-        studentAnswer: json.extraction.studentAnswer,
-        correctAnswer: json.extraction.correctAnswerCandidate,
-      });
+      await startMistakeFlow(json.extraction);
       return;
     }
 
-    setStatus('confirming');
+    if (!image) {
+      setStatus('error');
+      setError('题目图片预览已丢失，请重新上传');
+      return;
+    }
+
+    const persistentImageUrl = await buildPendingRecognizeImageUrl(image);
+
+    writePendingRecognizeSession({
+      imageUrl: persistentImageUrl,
+      ...json.extraction,
+    });
+    router.push('/mistake/recognize');
   }
 
-  async function startMistakeFlow(input: {
-    extraction: ExtractResponse['extraction'];
-    problemText: string;
-    studentAnswer?: string;
-    correctAnswer?: string;
-  }) {
+  async function startMistakeFlow(extraction: ExtractResponse['extraction']) {
     setStatus('creating_session');
     setError('');
 
     try {
-      const created = await createMistakeSession({
-        source: 'photo',
-        ocr: input.extraction,
-        confirmed: {
-          problemText: input.problemText,
-          ...(input.studentAnswer ? { studentAnswer: input.studentAnswer } : {}),
-          ...(input.correctAnswer ? { correctAnswer: input.correctAnswer } : {}),
-        },
-        status: 'draft',
+      await startMistakePreview({
+        extraction,
+        problemText: extraction.problemText,
+        studentAnswer: extraction.studentAnswer,
+        correctAnswer: extraction.correctAnswerCandidate,
+        studentName,
+        grade,
+        teachingStyle,
       });
-
       setStatus('starting_preview');
-
-      const generationSession = buildMistakeGenerationSession({
-        mistakeSessionId: created.session.id,
-        input: {
-          grade: 4,
-          subject: 'math',
-          source: 'photo',
-          problemText: input.problemText,
-          ...(input.studentAnswer ? { studentAnswer: input.studentAnswer } : {}),
-          ...(input.correctAnswer ? { correctAnswer: input.correctAnswer } : {}),
-        },
-      });
-      sessionStorage.setItem('generationSession', JSON.stringify(generationSession));
-
       router.push('/generation-preview');
     } catch (flowError) {
       setStatus('error');
@@ -142,89 +137,102 @@ export default function MistakePage() {
   }
 
   return (
-    <main style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 720 }}>
-      <h1>AI 错题讲解机</h1>
-      <p>拍照或上传一道题，系统会尽快把你带到讲解播放页。</p>
-
+    <main className="mx-auto grid min-h-screen w-full max-w-4xl gap-8 px-6 py-12">
       <input
+        ref={fileInputRef}
         accept="image/*"
         capture="environment"
+        className="hidden"
         type="file"
         onChange={(event) => {
           setImage(event.target.files?.[0] ?? null);
           setStatus('idle');
           setError('');
-          setLastExtraction(null);
         }}
       />
 
-      {previewUrl ? (
-        <img
-          alt="待识别题目预览"
-          src={previewUrl}
-          style={{ maxWidth: 360, borderRadius: 8, border: '1px solid #ddd' }}
-        />
-      ) : null}
+      <section className="grid gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <p className="text-sm font-bold text-primary tracking-widest uppercase">{homeContent.sceneHint}</p>
+        <div className="grid gap-4">
+          <h1 className="text-5xl md:text-6xl font-heading font-bold tracking-tight text-foreground leading-tight">
+            {homeContent.title}
+          </h1>
+          <p className="max-w-2xl text-lg md:text-xl text-muted-foreground leading-relaxed">
+            {homeContent.subtitle}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-4 mt-2">
+          <Button onClick={() => fileInputRef.current?.click()} size="lg" type="button" variant="cta" className="text-lg">
+            <Camera className="w-5 h-5 mr-2" />
+            {homeContent.ctaPrimary}
+          </Button>
+          <Button onClick={() => router.push('/history')} size="lg" type="button" variant="secondary" className="text-lg">
+            {homeContent.ctaSecondary}
+          </Button>
+        </div>
+      </section>
 
-      <button disabled={status === 'extracting' || !image} onClick={handleExtract} type="button">
-        {status === 'extracting' ? '识别中...' : '拍照识题'}
-      </button>
+      <section className="grid gap-4 md:grid-cols-3 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150 fill-mode-both">
+        {homeContent.values.map((value, index) => (
+          <Card key={value} className="p-6 hover:-translate-y-2 hover:rotate-1 transition-transform duration-300">
+            <p className="text-base font-bold text-center text-primary">{value}</p>
+          </Card>
+        ))}
+      </section>
 
-      {status === 'confirming' && (
-        <section style={{ display: 'grid', gap: 12 }}>
-          <label style={{ display: 'grid', gap: 6 }}>
-            题干
-            <textarea
-              aria-label="题干"
-              rows={4}
-              value={problemText}
-              onChange={(event) => setProblemText(event.target.value)}
-              style={{ width: '100%', minHeight: 112, padding: 10, boxSizing: 'border-box' }}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            学生答案
-            <input
-              aria-label="学生答案"
-              value={studentAnswer}
-              onChange={(event) => setStudentAnswer(event.target.value)}
-              style={{ width: '100%', padding: 10, boxSizing: 'border-box' }}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            正确答案候选
-            <input
-              aria-label="正确答案候选"
-              value={correctAnswer}
-              onChange={(event) => setCorrectAnswer(event.target.value)}
-              style={{ width: '100%', padding: 10, boxSizing: 'border-box' }}
-            />
-          </label>
-          <button
-            disabled={isStartingPreview || problemText.trim().length === 0}
-            onClick={() => {
-              if (!lastExtraction) {
-                setStatus('error');
-                setError('题目识别结果已丢失，请重新拍照');
-                return;
-              }
+      <Card className="grid gap-4 p-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-both border-4 border-white/50 bg-white/80 backdrop-blur-sm">
+        <div className="grid gap-2">
+          <h2 className="text-2xl font-heading font-bold text-primary">上传题目</h2>
+          <p className="text-base text-muted-foreground">{homeContent.uploadHint}</p>
+          <p className="text-sm text-muted-foreground/80">{homeContent.uploadTip}</p>
+        </div>
 
-              void startMistakeFlow({
-                extraction: lastExtraction,
-                problemText,
-                studentAnswer: studentAnswer || undefined,
-                correctAnswer: correctAnswer || undefined,
-              });
-            }}
-            type="button"
-            style={{ justifySelf: 'start', padding: '10px 16px' }}
-          >
-            {isStartingPreview ? '正在进入讲解...' : '开始讲解'}
-          </button>
-        </section>
+        {previewUrl ? (
+          <div className="grid gap-6 md:grid-cols-[280px_1fr] mt-4">
+            <div className="relative group overflow-hidden rounded-2xl border-4 border-white shadow-clay">
+              <img
+                alt="待识别题目预览"
+                className="w-full aspect-video object-cover transition-transform duration-500 group-hover:scale-105"
+                src={previewUrl}
+              />
+            </div>
+            <div className="grid content-center gap-4">
+              <p className="text-sm font-medium text-foreground bg-primary/10 p-3 rounded-xl border border-primary/20">
+                {image?.name ?? '已选择题目图片，下一步会先识别并请你确认。'}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button disabled={isExtracting || isStartingPreview} onClick={handleExtract} type="button" variant="cta" className="flex-1 sm:flex-none">
+                  {isExtracting ? '正在看这道题……' : '开始识别'}
+                </Button>
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                >
+                  重新选择
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col items-center justify-center p-12 border-4 border-dashed border-primary/20 rounded-3xl bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
+            <div className="w-20 h-20 bg-white rounded-full shadow-clay flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+              <Camera className="w-10 h-10 text-primary" />
+            </div>
+            <p className="text-xl font-heading font-bold text-primary mb-2">点击或拖拽上传</p>
+            <p className="text-sm text-muted-foreground">支持 jpg, png 格式的图片</p>
+          </div>
+        )}
+
+        {error ? <p className="text-sm font-bold text-destructive bg-destructive/10 p-3 rounded-xl border border-destructive/20 mt-2">{error}</p> : null}
+      </Card>
+
+      <p className="text-sm font-medium text-muted-foreground/60 text-center animate-in fade-in duration-1000 delay-500 fill-mode-both">{homeContent.parentHint}</p>
+
+      {hasLoadedFromServer && !isInitialized && (
+        <MistakeOnboarding />
       )}
-
-      {error ? <p>{error}</p> : null}
     </main>
   );
 }
