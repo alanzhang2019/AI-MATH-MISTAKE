@@ -86,6 +86,55 @@ describe('extractFromImage', () => {
     expect(result.confidence).toBe(0.76);
   });
 
+  it('repairs non-standard JSON returned by the OCR model', async () => {
+    const { extractFromImage } = await import('./extract-from-image');
+    const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
+
+    const result = await extractFromImage(
+      image,
+      { subject: 'math' },
+      {
+        callModel: vi.fn().mockResolvedValue(`好的，提取结果如下：
+{
+  'problemText': '18 + 24 = ?',
+  'studentAnswer': '32',
+  'correctAnswerCandidate': '42',
+  'confidence': 0.76,
+}`),
+      },
+    );
+
+    expect(result.problemText).toBe('18 + 24 = ?');
+    expect(result.studentAnswer).toBe('32');
+    expect(result.correctAnswerCandidate).toBe('42');
+    expect(result.confidence).toBe(0.76);
+  });
+
+  it('keeps math text when OCR JSON includes LaTeX-style backslashes', async () => {
+    const { extractFromImage } = await import('./extract-from-image');
+    const image = new File(['fake-image'], 'math.png', { type: 'image/png' });
+
+    const result = await extractFromImage(
+      image,
+      { subject: 'math' },
+      {
+        callModel: vi.fn().mockResolvedValue(`提取结果：
+\`\`\`json
+{
+  "problemText": "解方程：x - \\\\frac{7}{16} = \\\\frac{5}{24}",
+  "studentAnswer": "",
+  "correctAnswerCandidate": "x = \\\\frac{31}{48}",
+  "confidence": 0.81
+}
+\`\`\``),
+      },
+    );
+
+    expect(result.problemText).toContain('\\frac{7}{16}');
+    expect(result.correctAnswerCandidate).toContain('\\frac{31}{48}');
+    expect(result.confidence).toBe(0.81);
+  });
+
   it('sends the uploaded image using AI SDK image content parts', async () => {
     const callLLM = vi.fn().mockResolvedValue({
       text: JSON.stringify({

@@ -13,6 +13,7 @@ import { startMistakePreview } from '@/lib/mistake/ui/start-mistake-preview';
 import { writePendingRecognizeSession } from '@/lib/mistake/ui/recognize-session';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { MistakeOnboarding } from '@/components/onboarding/mistake-onboarding';
+import { useProfileStore } from '@/lib/store/profile';
 
 import { Camera } from 'lucide-react';
 
@@ -37,6 +38,7 @@ type PageStatus =
 export default function MistakePage() {
   const router = useRouter();
   const { t } = useI18n();
+  const activeProfile = useProfileStore((state) => state.activeProfile);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [status, setStatus] = useState<PageStatus>('idle');
@@ -124,9 +126,10 @@ export default function MistakePage() {
         problemText: extraction.problemText,
         studentAnswer: extraction.studentAnswer,
         correctAnswer: extraction.correctAnswerCandidate,
-        studentName,
-        grade,
-        teachingStyle,
+        studentName: activeProfile?.name || studentName,
+        grade: activeProfile?.grade || grade,
+        teachingStyle: activeProfile?.teachingStyle || teachingStyle,
+        studentProfileId: activeProfile?.id,
       });
       setStatus('starting_preview');
       router.push('/generation-preview');

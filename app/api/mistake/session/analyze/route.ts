@@ -46,7 +46,7 @@ export async function POST(request: Request): Promise<Response> {
       normalizedProblemText: diagnosis.normalizedProblemText,
       guessedMistake: diagnosis.guessedMistake,
       confidence: diagnosis.confidence,
-      explanationForChild: explainForChild(diagnosis.guessedMistake),
+      explanationForChild: explainForChild(diagnosis.guessedMistake, diagnosis.normalizedProblemText),
       knowledgePoint: diagnosis.knowledgePoint,
       practiceSuggestions: generatePractice(diagnosis.guessedMistake),
       parentSummary: diagnosis.parentSummary,

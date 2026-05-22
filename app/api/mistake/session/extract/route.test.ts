@@ -90,4 +90,65 @@ describe('POST /api/mistake/session/extract', () => {
       },
     });
   });
+
+  it('degrades to a manual confirmation draft when OCR returns an ocr-error payload', async () => {
+    const { extractFromImage } = await import('@/lib/mistake/ocr/extract-from-image');
+    vi.mocked(extractFromImage).mockResolvedValueOnce({
+      problemText: '',
+      confidence: 0,
+      needsUserConfirmation: true,
+      rawModelText: '[ocr-error] rate limit reached for RPM',
+    });
+
+    const formData = new FormData();
+    formData.set('image', new File(['fake'], 'math.png', { type: 'image/png' }));
+    formData.set('subject', 'math');
+
+    const request = new Request('http://localhost/api/mistake/session/extract', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const response = await POST(request as never);
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({
+      success: true,
+      extraction: {
+        problemText: '',
+        confidence: 0,
+        needsUserConfirmation: true,
+        rawModelText: '[ocr-error] rate limit reached for RPM',
+      },
+    });
+  });
+
+  it('falls back to a manual confirmation draft when OCR throws', async () => {
+    const { extractFromImage } = await import('@/lib/mistake/ocr/extract-from-image');
+    vi.mocked(extractFromImage).mockRejectedValueOnce(new Error('provider offline'));
+
+    const formData = new FormData();
+    formData.set('image', new File(['fake'], 'math.png', { type: 'image/png' }));
+    formData.set('subject', 'math');
+
+    const request = new Request('http://localhost/api/mistake/session/extract', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const response = await POST(request as never);
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({
+      success: true,
+      extraction: {
+        problemText: '',
+        confidence: 0,
+        needsUserConfirmation: true,
+        rawModelText: '[ocr-error] provider offline',
+      },
+    });
+  });
 });

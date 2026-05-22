@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 
 import { extractFromImage } from '@/lib/mistake/ocr/extract-from-image';
+import { normalizeExtraction } from '@/lib/mistake/ocr/normalize-extraction';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { normalizeAiErrorMessage } from '@/lib/server/normalize-ai-error';
 
 const bodySchema = z.object({
   subject: z.literal('math'),
@@ -33,13 +35,18 @@ export async function POST(request: NextRequest) {
 
     const extraction = await extractFromImage(image, parsed.data);
 
+    if (extraction.confidence === 0 && extraction.rawModelText?.includes('ocr-error')) {
+      return apiSuccess({ extraction });
+    }
+
     return apiSuccess({ extraction });
   } catch (error) {
-    return apiError(
-      'INTERNAL_ERROR',
-      500,
-      'Image extraction failed',
-      error instanceof Error ? error.message : 'Unknown error',
-    );
+    const details = normalizeAiErrorMessage(error);
+    const extraction = normalizeExtraction({
+      confidence: 0,
+      rawModelText: `[ocr-error] ${details}`,
+    });
+
+    return apiSuccess({ extraction });
   }
 }

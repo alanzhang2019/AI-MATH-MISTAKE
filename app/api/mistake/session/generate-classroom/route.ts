@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       ...(resolveMistakeClassroomModelString()
         ? { modelString: resolveMistakeClassroomModelString() }
         : {}),
-      maxScenes: 3,
+      maxScenes: 1, // Only generate 1 scene since it's single-problem focused
       enableImageGeneration: false,
       enableVideoGeneration: true,
       enableTTS: true,

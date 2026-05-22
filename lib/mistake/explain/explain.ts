@@ -1,7 +1,7 @@
 import type { MistakeCode } from '@/lib/mistake/domain/types';
 import { getMistakeLabel } from '@/lib/mistake/taxonomy/mistake-taxonomy';
 
-export function explainForChild(code: MistakeCode): string {
+export function explainForChild(code: MistakeCode, problemText?: string): string {
   if (code === 'concept_gap') {
     return `这道题不只是算错，更像是${getMistakeLabel(code).name}。先把题目在问什么、已知什么说清楚，再开始列式。`;
   }

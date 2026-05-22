@@ -1,3 +1,5 @@
+import type { ExplanationSummary } from '@/lib/mistake/ui/types';
+
 export type MistakeSessionStatus =
   | 'draft'
   | 'ready_to_generate'
@@ -6,8 +8,16 @@ export type MistakeSessionStatus =
   | 'failed'
   | 'completed';
 
+export interface ParentSummary {
+  totalCount: number;
+  solvedCount: number;
+  needMoreReason: string;
+  focusTopic: string;
+}
+
 export interface MistakeSession {
   id: string;
+  studentProfileId?: string;
   source: 'photo' | 'upload';
   imageUrl?: string;
   ocr: {
@@ -23,6 +33,9 @@ export interface MistakeSession {
   };
   classroomJobId?: string;
   classroomId?: string;
+  explanationSummary?: ExplanationSummary;
+  parentSummary?: ParentSummary;
+  masteryStatus?: 'pending' | 'done';
   error?: string;
   status: MistakeSessionStatus;
   createdAt: string;
@@ -30,6 +43,7 @@ export interface MistakeSession {
 }
 
 export interface CreateMistakeSessionInput {
+  studentProfileId?: string;
   source: 'photo' | 'upload';
   imageUrl?: string;
   ocr: MistakeSession['ocr'];

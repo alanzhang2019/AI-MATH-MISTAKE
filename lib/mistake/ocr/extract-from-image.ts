@@ -2,27 +2,44 @@ import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 
 import { callLLM } from '@/lib/ai/llm';
+import { parseJsonResponse } from '@/lib/generation/json-repair';
 import { resolveModel } from '@/lib/server/resolve-model';
+import { createLogger } from '@/lib/logger';
 
 import { normalizeExtraction } from './normalize-extraction';
 import type { ExtractImageOptions, MistakeImageExtraction } from './types';
+
+const log = createLogger('OCR');
 
 const extractionSchema = z.object({
   problemText: z.string().optional(),
   studentAnswer: z.string().optional(),
   correctAnswerCandidate: z.string().optional(),
-  confidence: z.number().optional(),
+  confidence: z.preprocess((val) => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      const parsed = parseFloat(val.replace(/[^0-9.]/g, ''));
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return undefined;
+  }, z.number().optional()),
 });
 
 function parseExtractionJson(rawModelText: string) {
-  const trimmed = rawModelText.trim();
-  const withoutCodeFence = trimmed
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-  const jsonText = withoutCodeFence.match(/\{[\s\S]*\}/)?.[0] ?? withoutCodeFence;
-
-  return extractionSchema.parse(JSON.parse(jsonText));
+  try {
+    const parsed = parseJsonResponse<unknown>(rawModelText);
+    if (!parsed) {
+      throw new Error('Failed to parse OCR JSON');
+    }
+    return extractionSchema.parse(parsed);
+  } catch (e) {
+    console.error("=== OCR PARSE ERROR ===");
+    console.error("Error:", e);
+    console.error("Raw text:", rawModelText);
+    console.error("=======================");
+    log.error('JSON parse error in OCR:', e, 'Raw text:', rawModelText);
+    throw e;
+  }
 }
 
 export interface ExtractDependencies {
@@ -47,7 +64,7 @@ async function callVisionModel(input: {
             {
               type: 'text',
               text:
-                '你是数学错题图片提取器。只处理单题单图。请提取 problemText、studentAnswer、correctAnswerCandidate、confidence，并只返回 JSON。看不清可以留空，不要编造。',
+                '你是数学错题图片提取器。只处理单题单图。请提取 problemText、studentAnswer、correctAnswerCandidate、confidence。只返回纯JSON字符串，不要任何额外的说明、换行符或 Markdown 代码块标识符（如 ```json）。如果看不清可以留空，不要编造。注意：confidence必须是0到1之间的数字类型（如 0.95，绝对不能带引号或百分号）。',
             },
             {
               type: 'text',
@@ -63,6 +80,7 @@ async function callVisionModel(input: {
       ],
     },
     'mistake-ocr-extract',
+    { retries: 2 },
   );
 
   return result.text;

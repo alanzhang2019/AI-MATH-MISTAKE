@@ -28,302 +28,349 @@
   - `app/select-profile/page.tsx`: Netflix-style profile selector.
   - `lib/store/profile.ts`: Zustand store for currently active student profile.
 - **API Routes:**
+  - `app/api/profiles/route.ts`: Endpoint to manage profiles.
   - `app/api/parent/evaluation/route.ts`: Endpoint to trigger weekly AI evaluation.
 - **Integrations:**
   - `lib/mistake/openmaic/build-requirement.ts`: Update prompt to request Knowledge Tags.
 
 ---
 
-### Task 1: Initialize Prisma and Database Schema
+### Task 1: Initialize Prisma and Database Schema (Completed)
+### Task 2: Setup NextAuth Configuration (Completed)
+### Task 3: Auth UI and Registration Logic (Completed)
+
+---
+
+### Phase 2: Profile Selection & Parent Dashboard UI
+
+### Task 4: Profile API and Zustand Store
 
 **Files:**
-- Create: `prisma/schema.prisma`
-- Create: `lib/db.ts`
+- Create: `app/api/profiles/route.ts`
+- Create: `lib/store/profile.ts`
 
-- [ ] **Step 1: Install Prisma dependencies**
-
-```bash
-npm install @prisma/client
-npm install prisma --save-dev
-npx prisma init --datasource-provider sqlite
-```
-
-- [ ] **Step 2: Define Prisma Schema**
-Edit `prisma/schema.prisma`:
-```prisma
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id           String           @id @default(uuid())
-  email        String           @unique
-  passwordHash String
-  pin          String?          // 4-digit PIN for parent dashboard
-  createdAt    DateTime         @default(now())
-  profiles     StudentProfile[]
-}
-
-model StudentProfile {
-  id            String          @id @default(uuid())
-  parentId      String
-  parent        User            @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  name          String
-  grade         Int
-  teachingStyle String
-  avatarUrl     String?
-  mistakes      MistakeRecord[]
-  createdAt     DateTime        @default(now())
-}
-
-model MistakeRecord {
-  id            String          @id @default(uuid())
-  studentId     String
-  student       StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  problemText   String
-  studentAnswer String
-  correctAnswer String
-  imageUrl      String?
-  isResolved    Boolean         @default(false)
-  createdAt     DateTime        @default(now())
-  concepts      KnowledgeConcept[] @relation("MistakeToConcept")
-}
-
-model KnowledgeConcept {
-  id       String          @id @default(uuid())
-  name     String          @unique
-  mistakes MistakeRecord[] @relation("MistakeToConcept")
-}
-```
-
-- [ ] **Step 3: Generate Client and Push Schema**
-
-```bash
-npx prisma db push
-npx prisma generate
-```
-
-- [ ] **Step 4: Create DB Singleton**
-Create `lib/db.ts`:
-```typescript
-import { PrismaClient } from '@prisma/client'
-
-const prismaClientSingleton = () => {
-  return new PrismaClient()
-}
-
-declare global {
-  var prismaGlobal: undefined | ReturnType<typeof prismaClientSingleton>
-}
-
-export const db = globalThis.prismaGlobal ?? prismaClientSingleton()
-
-if (process.env.NODE_ENV !== 'production') globalThis.prismaGlobal = db
-```
-
-- [ ] **Step 5: Commit**
-```bash
-git add prisma/ lib/db.ts package.json package-lock.json .env
-git commit -m "feat: initialize prisma and define schema"
-```
-
-### Task 2: Setup NextAuth Configuration
-
-**Files:**
-- Install: `bcryptjs`
-- Create: `auth.ts`
-- Create: `app/api/auth/[...nextauth]/route.ts`
-
-- [ ] **Step 1: Install Auth Dependencies**
-```bash
-npm install next-auth@beta bcryptjs
-npm install -D @types/bcryptjs
-```
-
-- [ ] **Step 2: Create Auth Config**
-Create `auth.ts`:
-```typescript
-import NextAuth from "next-auth"
-import Credentials from "next-auth/providers/credentials"
-import { db } from "./lib/db"
-import bcrypt from "bcryptjs"
-
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null
-        
-        const user = await db.user.findUnique({
-          where: { email: credentials.email as string }
-        })
-        
-        if (!user) return null
-        
-        const passwordsMatch = await bcrypt.compare(
-          credentials.password as string, 
-          user.passwordHash
-        )
-        
-        if (passwordsMatch) return { id: user.id, email: user.email }
-        return null
-      }
-    })
-  ],
-  pages: {
-    signIn: "/auth/login",
-  },
-  callbacks: {
-    async session({ session, token }) {
-      if (session.user && token.sub) {
-        session.user.id = token.sub
-      }
-      return session
-    }
-  }
-})
-```
-
-- [ ] **Step 3: Create Auth API Route**
-Create `app/api/auth/[...nextauth]/route.ts`:
-```typescript
-import { handlers } from "@/auth"
-export const { GET, POST } = handlers
-```
-
-- [ ] **Step 4: Commit**
-```bash
-git add auth.ts app/api/auth/ package.json package-lock.json
-git commit -m "feat: setup nextauth with credentials provider"
-```
-
-### Task 3: Auth UI and Registration Logic
-
-**Files:**
-- Create: `app/auth/login/page.tsx`
-- Create: `app/api/auth/register/route.ts`
-
-- [ ] **Step 1: Create Register API**
-Create `app/api/auth/register/route.ts`:
+- [ ] **Step 1: Create Profile API**
+Create `app/api/profiles/route.ts`:
 ```typescript
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import bcrypt from "bcryptjs";
+
+export async function GET() {
+  const session = await auth();
+  if (!session?.user?.id) return new NextResponse("Unauthorized", { status: 401 });
+
+  const profiles = await db.studentProfile.findMany({
+    where: { parentId: session.user.id },
+    orderBy: { createdAt: 'asc' }
+  });
+  
+  return NextResponse.json(profiles);
+}
 
 export async function POST(req: Request) {
-  try {
-    const { email, password } = await req.json();
-    if (!email || !password) {
-      return new NextResponse("Missing fields", { status: 400 });
-    }
+  const session = await auth();
+  if (!session?.user?.id) return new NextResponse("Unauthorized", { status: 401 });
 
-    const existingUser = await db.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return new NextResponse("Email already exists", { status: 400 });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const user = await db.user.create({
-      data: { email, passwordHash },
-    });
-
-    return NextResponse.json({ id: user.id, email: user.email });
-  } catch (error) {
-    return new NextResponse("Internal Error", { status: 500 });
+  const { name, grade, teachingStyle } = await req.json();
+  if (!name || !grade || !teachingStyle) {
+    return new NextResponse("Missing fields", { status: 400 });
   }
+
+  const profile = await db.studentProfile.create({
+    data: {
+      parentId: session.user.id,
+      name,
+      grade: parseInt(grade, 10),
+      teachingStyle
+    }
+  });
+
+  return NextResponse.json(profile);
 }
 ```
 
-- [ ] **Step 2: Create Login/Register Page UI**
-Create `app/auth/login/page.tsx`:
+- [ ] **Step 2: Create Zustand Store**
+Create `lib/store/profile.ts`:
+```typescript
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export interface StudentProfile {
+  id: string;
+  parentId: string;
+  name: string;
+  grade: number;
+  teachingStyle: string;
+  avatarUrl: string | null;
+}
+
+interface ProfileState {
+  activeProfile: StudentProfile | null;
+  setActiveProfile: (profile: StudentProfile | null) => void;
+}
+
+export const useProfileStore = create<ProfileState>()(
+  persist(
+    (set) => ({
+      activeProfile: null,
+      setActiveProfile: (profile) => set({ activeProfile: profile }),
+    }),
+    {
+      name: 'mistake-active-profile',
+    }
+  )
+);
+```
+
+- [ ] **Step 3: Commit**
+```bash
+git add app/api/profiles/route.ts lib/store/profile.ts
+git commit -m "feat: add profile API and zustand store"
+```
+
+### Task 5: Profile Selection UI
+
+**Files:**
+- Create: `app/select-profile/page.tsx`
+
+- [ ] **Step 1: Create Profile Selection Page**
+Create `app/select-profile/page.tsx`:
 ```typescript
 "use client";
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useProfileStore, StudentProfile } from "@/lib/store/profile";
 
-export default function LoginPage() {
-  const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+export default function SelectProfilePage() {
+  const { data: session, status } = useSession();
   const router = useRouter();
+  const setActiveProfile = useProfileStore((state) => state.setActiveProfile);
+  const [profiles, setProfiles] = useState<StudentProfile[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({ name: "", grade: "4", teachingStyle: "gentle" });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isRegister) {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) return alert("Registration failed");
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/auth/login");
+    } else if (status === "authenticated") {
+      fetchProfiles();
     }
-    
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+  }, [status, router]);
 
-    if (result?.error) {
-      alert("Invalid credentials");
-    } else {
-      router.push("/select-profile");
-      router.refresh();
+  const fetchProfiles = async () => {
+    const res = await fetch("/api/profiles");
+    if (res.ok) {
+      const data = await res.json();
+      setProfiles(data);
     }
   };
 
+  const handleSelect = (profile: StudentProfile) => {
+    setActiveProfile(profile);
+    router.push("/mistake");
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData),
+    });
+    if (res.ok) {
+      setShowForm(false);
+      fetchProfiles();
+    }
+  };
+
+  if (status === "loading") return <div>Loading...</div>;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow">
-        <h1 className="text-2xl font-bold text-center mb-6">
-          {isRegister ? "Parent Registration" : "Parent Login"}
-        </h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            className="w-full p-2 border rounded"
-            required
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full p-2 border rounded"
-            required
-          />
-          <button type="submit" className="w-full p-2 bg-blue-600 text-white rounded">
-            {isRegister ? "Register" : "Login"}
-          </button>
-        </form>
-        <button 
-          onClick={() => setIsRegister(!isRegister)}
-          className="w-full mt-4 text-sm text-blue-600"
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-900 text-white p-4">
+      <h1 className="text-4xl font-bold mb-8">Who is learning?</h1>
+      
+      <div className="flex flex-wrap gap-6 justify-center">
+        {profiles.map((p) => (
+          <div 
+            key={p.id} 
+            onClick={() => handleSelect(p)}
+            className="flex flex-col items-center cursor-pointer group"
+          >
+            <div className="w-32 h-32 bg-blue-500 rounded-lg flex items-center justify-center text-4xl font-bold group-hover:ring-4 ring-white transition-all">
+              {p.name.charAt(0).toUpperCase()}
+            </div>
+            <span className="mt-4 text-xl">{p.name}</span>
+          </div>
+        ))}
+        
+        <div 
+          onClick={() => setShowForm(true)}
+          className="flex flex-col items-center cursor-pointer group"
         >
-          {isRegister ? "Already have an account? Login" : "Need an account? Register"}
-        </button>
+          <div className="w-32 h-32 border-4 border-gray-600 rounded-lg flex items-center justify-center text-4xl font-bold group-hover:border-white transition-all">
+            +
+          </div>
+          <span className="mt-4 text-xl">Add Profile</span>
+        </div>
       </div>
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center">
+          <form onSubmit={handleCreate} className="bg-gray-800 p-8 rounded-lg w-full max-w-md space-y-4">
+            <h2 className="text-2xl font-bold">Create Profile</h2>
+            <input 
+              type="text" placeholder="Name" required
+              className="w-full p-2 rounded bg-gray-700 text-white"
+              value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
+            />
+            <select 
+              className="w-full p-2 rounded bg-gray-700 text-white"
+              value={formData.grade} onChange={e => setFormData({...formData, grade: e.target.value})}
+            >
+              <option value="4">Grade 4</option>
+              <option value="5">Grade 5</option>
+              <option value="6">Grade 6</option>
+            </select>
+            <select 
+              className="w-full p-2 rounded bg-gray-700 text-white"
+              value={formData.teachingStyle} onChange={e => setFormData({...formData, teachingStyle: e.target.value})}
+            >
+              <option value="gentle">Gentle & Encouraging</option>
+              <option value="strict">Strict & Direct</option>
+              <option value="socratic">Socratic (Guiding Questions)</option>
+            </select>
+            <div className="flex justify-end gap-4 mt-6">
+              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-600 rounded">Cancel</button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 rounded">Create</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 ```bash
-git add app/auth/ app/api/auth/register/
-git commit -m "feat: implement auth login and registration UI"
+git add app/select-profile/page.tsx
+git commit -m "feat: add profile selection UI"
 ```
 
-*(Note: The plan focuses on establishing the DB and Auth fundamentals first, as requested. Subsequent tasks for Profile Selection, Parent Dashboard PIN, and Knowledge Analytics will be detailed in follow-up plans once this core foundation is merged.)*
+### Task 6: Parent Dashboard Layout and Auth Provider Setup
+
+Since NextAuth's `useSession` requires a `SessionProvider` at the root (or layout) level, we need to add it.
+
+**Files:**
+- Create: `components/providers/session-provider.tsx`
+- Modify: `app/layout.tsx`
+- Create: `app/parent/layout.tsx`
+- Create: `app/parent/dashboard/page.tsx`
+
+- [ ] **Step 1: Create Session Provider**
+Create `components/providers/session-provider.tsx`:
+```typescript
+"use client";
+import { SessionProvider } from "next-auth/react";
+
+export function NextAuthProvider({ children }: { children: React.ReactNode }) {
+  return <SessionProvider>{children}</SessionProvider>;
+}
+```
+
+- [ ] **Step 2: Update Root Layout**
+Modify `app/layout.tsx`:
+Import `NextAuthProvider` and wrap `children`:
+```typescript
+// Add to imports
+import { NextAuthProvider } from '@/components/providers/session-provider';
+
+// In RootLayout, wrap AccessCodeGuard with NextAuthProvider
+// ...
+          <I18nProvider>
+            <NextAuthProvider>
+              <ServerProvidersInit />
+              <AccessCodeGuard>{children}</AccessCodeGuard>
+              <Toaster position="top-center" />
+            </NextAuthProvider>
+          </I18nProvider>
+// ...
+```
+
+- [ ] **Step 3: Create Parent Layout**
+Create `app/parent/layout.tsx`:
+```typescript
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+
+export default async function ParentLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await auth();
+  
+  if (!session) {
+    redirect("/auth/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white shadow-sm px-6 py-4 flex justify-between items-center">
+        <h1 className="text-xl font-bold text-gray-800">Parent Dashboard</h1>
+        <div className="flex gap-4">
+          <a href="/select-profile" className="text-blue-600 hover:underline">Switch Profile</a>
+        </div>
+      </nav>
+      <main className="p-6 max-w-6xl mx-auto">
+        {children}
+      </main>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Create Parent Dashboard Stub**
+Create `app/parent/dashboard/page.tsx`:
+```typescript
+import { auth } from "@/auth";
+import { db } from "@/lib/db";
+
+export default async function ParentDashboard() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const profiles = await db.studentProfile.findMany({
+    where: { parentId: session.user.id },
+    include: {
+      mistakes: true
+    }
+  });
+
+  return (
+    <div className="space-y-8">
+      <h2 className="text-2xl font-bold">Analytics Overview</h2>
+      
+      {profiles.map(profile => (
+        <div key={profile.id} className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-xl font-bold mb-4">{profile.name} - Grade {profile.grade}</h3>
+          <p>Total Mistakes Recorded: {profile.mistakes.length}</p>
+          <p>Resolved Mistakes: {profile.mistakes.filter(m => m.isResolved).length}</p>
+          <p className="mt-4 text-gray-500 italic">Knowledge Graphs and AI Evaluation coming in Phase 3...</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Commit**
+```bash
+git add components/providers/ app/layout.tsx app/parent/
+git commit -m "feat: setup parent dashboard layout and session provider"
+```
+
+---
+*Note: Phase 3 will cover integrating `MistakeRecord` creation into the Student Mode (`/mistake`) and building the AI Knowledge Graph Analytics.*

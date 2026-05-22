@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   createMistakeSession,
+  findMistakeSessionByClassroomId,
   MISTAKE_SESSIONS_DIR,
   readMistakeSession,
   updateMistakeSession,
@@ -53,5 +54,24 @@ describe('mistake session store', () => {
     expect(updated.classroomJobId).toBe('job-1');
     expect(updated.classroomId).toBe('classroom-1');
     expect(updated.status).toBe('live');
+  });
+
+  it('finds a session by classroom id', async () => {
+    const session = await createMistakeSession({
+      source: 'upload',
+      ocr: { problemText: '24 / 6 = ?', confidence: 0.8 },
+      confirmed: { problemText: '24 / 6 = ?', correctAnswer: '4' },
+      status: 'waiting_first_scene',
+    });
+
+    await updateMistakeSession(session.id, {
+      classroomId: 'classroom-lookup-1',
+      status: 'live',
+    });
+
+    const found = await findMistakeSessionByClassroomId('classroom-lookup-1');
+
+    expect(found?.id).toBe(session.id);
+    expect(found?.classroomId).toBe('classroom-lookup-1');
   });
 });

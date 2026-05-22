@@ -10,8 +10,10 @@ export async function startMistakePreview(input: {
   studentName?: string;
   grade?: number;
   teachingStyle?: string;
+  studentProfileId?: string;
 }) {
   const created = await createMistakeSession({
+    studentProfileId: input.studentProfileId,
     source: 'photo',
     ocr: input.extraction,
     confirmed: {

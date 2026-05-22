@@ -5,6 +5,7 @@ import { createMistakeSession } from '@/lib/mistake/session/store';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 
 const requestSchema = z.object({
+  studentProfileId: z.string().optional(),
   source: z.union([z.literal('photo'), z.literal('upload')]),
   imageUrl: z.string().optional(),
   ocr: z.object({

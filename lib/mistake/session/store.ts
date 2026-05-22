@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import { nanoid } from 'nanoid';
+import { db } from '@/lib/db';
 
 import {
   ensureMistakeSessionsDir,
@@ -30,6 +31,25 @@ export async function createMistakeSession(
 
   await ensureMistakeSessionsDir();
   await writeJsonFileAtomic(sessionFilePath(session.id), session);
+
+  if (input.studentProfileId) {
+    try {
+      await db.mistakeRecord.create({
+        data: {
+          id: session.id,
+          studentId: input.studentProfileId,
+          problemText: input.confirmed.problemText,
+          studentAnswer: input.confirmed.studentAnswer || "",
+          correctAnswer: input.confirmed.correctAnswer || "",
+          imageUrl: input.imageUrl || null,
+          isResolved: false
+        }
+      });
+    } catch (err) {
+      console.error("Failed to create mistake record", err);
+    }
+  }
+
   return session;
 }
 
@@ -62,5 +82,39 @@ export async function updateMistakeSession(
   };
 
   await writeJsonFileAtomic(sessionFilePath(sessionId), updated);
+
+  if (patch.masteryStatus === 'done' && existing.studentProfileId) {
+    try {
+      await db.mistakeRecord.update({
+        where: { id: sessionId },
+        data: { isResolved: true }
+      });
+    } catch (err) {
+      console.error("Failed to update mistake record", err);
+    }
+  }
+
   return updated;
+}
+
+export async function findMistakeSessionByClassroomId(
+  classroomId: string,
+): Promise<MistakeSession | null> {
+  await ensureMistakeSessionsDir();
+  const fileNames = await fs.readdir(MISTAKE_SESSIONS_DIR);
+
+  for (const fileName of fileNames) {
+    if (!fileName.endsWith('.json')) {
+      continue;
+    }
+
+    const raw = await fs.readFile(path.join(MISTAKE_SESSIONS_DIR, fileName), 'utf-8');
+    const session = JSON.parse(raw) as MistakeSession;
+
+    if (session.classroomId === classroomId) {
+      return session;
+    }
+  }
+
+  return null;
 }

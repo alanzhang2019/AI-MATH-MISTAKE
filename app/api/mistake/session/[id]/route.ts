@@ -16,6 +16,30 @@ const patchSchema = z.object({
       z.literal('completed'),
     ])
     .optional(),
+  explanationSummary: z
+    .object({
+      stuckPoint: z.string().min(1),
+      whyStuck: z.string().min(1),
+      howToThink: z.string().min(1),
+      nextTimeTip: z.string().min(1),
+      simplifiedExplanation: z
+        .object({
+          title: z.string().min(1),
+          desc1: z.string().min(1),
+          desc2: z.string().min(1),
+        })
+        .optional(),
+    })
+    .optional(),
+  parentSummary: z
+    .object({
+      totalCount: z.number().int().nonnegative(),
+      solvedCount: z.number().int().nonnegative(),
+      needMoreReason: z.string().min(1),
+      focusTopic: z.string().min(1),
+    })
+    .optional(),
+  masteryStatus: z.union([z.literal('pending'), z.literal('done')]).optional(),
   error: z.string().optional(),
 });
 
