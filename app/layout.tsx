@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import localFont from 'next/font/local';
-import { GeistSans } from 'geist/font/sans';
+import { Baloo_2, Comic_Neue } from 'next/font/google';
 import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import 'animate.css';
@@ -10,17 +9,25 @@ import { I18nProvider } from '@/lib/hooks/use-i18n';
 import { Toaster } from '@/components/ui/sonner';
 import { ServerProvidersInit } from '@/components/server-providers-init';
 import { AccessCodeGuard } from '@/components/access-code-guard';
+import { NextAuthProvider } from '@/components/providers/session-provider';
 
-const inter = localFont({
-  src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
-  variable: '--font-sans',
-  weight: '100 900',
+const baloo = Baloo_2({ 
+  subsets: ["latin"],
+  variable: "--font-baloo-2",
+  display: 'swap',
+});
+
+const comicNeue = Comic_Neue({
+  weight: ['300', '400', '700'],
+  subsets: ["latin"],
+  variable: "--font-comic-neue",
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: 'OpenMAIC',
+  title: 'AI Math Mistake Machine',
   description:
-    'The open-source AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
+    'AI-powered math tutor for grades 4-6. Upload a math problem to instantly generate an interactive learning experience.',
 };
 
 export default function RootLayout({
@@ -29,16 +36,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="zh-CN" className={`${baloo.variable} ${comicNeue.variable}`} suppressHydrationWarning>
       <body
-        className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
+        className={`${GeistMono.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
         <ThemeProvider>
           <I18nProvider>
-            <ServerProvidersInit />
-            <AccessCodeGuard>{children}</AccessCodeGuard>
-            <Toaster position="top-center" />
+            <NextAuthProvider>
+              <ServerProvidersInit />
+              <AccessCodeGuard>{children}</AccessCodeGuard>
+              <Toaster position="top-center" />
+            </NextAuthProvider>
           </I18nProvider>
         </ThemeProvider>
       </body>
