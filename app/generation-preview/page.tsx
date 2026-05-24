@@ -16,8 +16,11 @@ import { getAvailableProvidersWithVoices } from '@/lib/audio/voice-resolver';
 import { getVoxCPMProviderOptions, useVoxCPMVoiceProfiles } from '@/lib/audio/voxcpm-voices';
 import { updateMistakeSession } from '@/lib/mistake/session/client';
 import { resolveAgentModeForGeneration } from '@/lib/mistake/openmaic/resolve-agent-mode';
+import { persistPlayableClassroom } from '@/lib/mistake/openmaic/persist-playable-classroom';
 import { buildClientTTSRequestConfig } from '@/lib/audio/build-client-tts-request';
+import { warmSceneTTSWithinBudget } from '@/lib/audio/warm-scene-tts';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { shouldClearGenerationPreviewSession } from '@/lib/mistake/ui/generation-preview-session';
 import {
   loadImageMapping,
   loadPdfBlob,
@@ -28,16 +31,19 @@ import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { db } from '@/lib/utils/database';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
 import { buildVideoManifestFromOutlines } from '@/lib/media/video-manifest';
+import { getClassroomNavigationTarget } from '@/lib/mistake/ui/classroom-navigation';
 import { nanoid } from 'nanoid';
 import type { Stage } from '@/lib/types/stage';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
 import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
 import { createLogger } from '@/lib/logger';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
+import { buildGenerationApiHeaders } from './api-headers';
 import { StepVisualizer } from './components/visualizers';
 
 const log = createLogger('GenerationPreview');
 const OUTLINE_REVIEW_AUTO_CONTINUE_MS = 2500;
+const FIRST_SCENE_TTS_WARMUP_BUDGET_MS = 8000;
 
 function GenerationPreviewContent() {
   const router = useRouter();
@@ -161,34 +167,6 @@ function GenerationPreviewContent() {
       clearOutlineReviewTimer();
     };
   }, []);
-
-  // Get API credentials from localStorage
-  const getApiHeaders = () => {
-    const modelConfig = getCurrentModelConfig();
-    const settings = useSettingsStore.getState();
-    const imageProviderConfig = settings.imageProvidersConfig?.[settings.imageProviderId];
-    const videoProviderConfig = settings.videoProvidersConfig?.[settings.videoProviderId];
-    return {
-      'Content-Type': 'application/json',
-      'x-model': modelConfig.modelString,
-      'x-api-key': modelConfig.apiKey,
-      'x-base-url': modelConfig.baseUrl,
-      'x-provider-type': modelConfig.providerType || '',
-      // Image generation provider
-      'x-image-provider': settings.imageProviderId || '',
-      'x-image-model': settings.imageModelId || '',
-      'x-image-api-key': imageProviderConfig?.apiKey || '',
-      'x-image-base-url': imageProviderConfig?.baseUrl || '',
-      // Video generation provider
-      'x-video-provider': settings.videoProviderId || '',
-      'x-video-model': settings.videoModelId || '',
-      'x-video-api-key': videoProviderConfig?.apiKey || '',
-      'x-video-base-url': videoProviderConfig?.baseUrl || '',
-      // Media generation toggles
-      'x-image-generation-enabled': String(settings.imageGenerationEnabled ?? false),
-      'x-video-generation-enabled': String(settings.videoGenerationEnabled ?? false),
-    };
-  };
 
   const withThinkingConfig = <T extends Record<string, unknown>>(body: T) => {
     const { thinkingConfig } = getCurrentModelConfig();
@@ -393,7 +371,7 @@ function GenerationPreviewContent() {
         const wsConfig = wsSettings.webSearchProvidersConfig?.[wsProviderId];
         const res = await fetch('/api/web-search', {
           method: 'POST',
-          headers: getApiHeaders(),
+          headers: await buildGenerationApiHeaders(currentSession),
           body: JSON.stringify(
             withThinkingConfig({
               query: currentSession.requirements.requirement,
@@ -465,6 +443,7 @@ function GenerationPreviewContent() {
         log.debug('=== Generating outlines (SSE) ===');
         setStreamingOutlines([]);
         setIsOutlineStreaming(true);
+        const outlineHeaders = await buildGenerationApiHeaders(currentSession);
 
         const outlineResult = await new Promise<{
           outlines: SceneOutline[];
@@ -475,7 +454,7 @@ function GenerationPreviewContent() {
 
           fetch('/api/generate/scene-outlines-stream', {
             method: 'POST',
-            headers: getApiHeaders(),
+            headers: outlineHeaders,
             body: JSON.stringify(
               withThinkingConfig({
                 requirements: currentSession.requirements,
@@ -699,7 +678,7 @@ function GenerationPreviewContent() {
 
           const agentResp = await fetch('/api/generate/agent-profiles', {
             method: 'POST',
-            headers: getApiHeaders(),
+            headers: await buildGenerationApiHeaders(currentSession),
             body: JSON.stringify(
               withThinkingConfig({
                 stageInfo: { name: stage.name, description: stage.description },
@@ -816,7 +795,7 @@ function GenerationPreviewContent() {
       // Step 2: Generate content (currentStepIndex is already 2)
       const contentResp = await fetch('/api/generate/scene-content', {
         method: 'POST',
-        headers: getApiHeaders(),
+        headers: await buildGenerationApiHeaders(currentSession),
         body: JSON.stringify(
           withThinkingConfig({
             outline: firstOutline,
@@ -848,7 +827,7 @@ function GenerationPreviewContent() {
 
       const actionsResp = await fetch('/api/generate/scene-actions', {
         method: 'POST',
-        headers: getApiHeaders(),
+        headers: await buildGenerationApiHeaders(currentSession),
         body: JSON.stringify(
           withThinkingConfig({
             outline: contentData.effectiveOutline || firstOutline,
@@ -874,9 +853,10 @@ function GenerationPreviewContent() {
         throw new Error(data.error || t('generation.sceneGenerateFailed'));
       }
 
-      // Generate TTS for first scene (part of actions step — blocking)
+      // Warm first-scene TTS, but don't let the preview page hold navigation hostage.
       if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
         const ttsProviderConfig = settings.ttsProvidersConfig?.[settings.ttsProviderId];
+        const requestConfig = buildClientTTSRequestConfig(settings.ttsProviderId, ttsProviderConfig);
         const providerOptions =
           settings.ttsProviderId === 'voxcpm-tts'
             ? {
@@ -887,21 +867,17 @@ function GenerationPreviewContent() {
                 })),
               }
             : undefined;
-        const speechActions = (data.scene.actions || []).filter(
-          (a: { type: string; text?: string }) => a.type === 'speech' && a.text,
-        );
 
-        let ttsFailCount = 0;
-        for (const action of speechActions) {
-          const audioId = `tts_${action.id}`;
-          action.audioId = audioId;
-          try {
-            const requestConfig = buildClientTTSRequestConfig(settings.ttsProviderId, ttsProviderConfig);
+        const ttsWarmup = await warmSceneTTSWithinBudget({
+          scene: data.scene,
+          language: languageDirective,
+          budgetMs: FIRST_SCENE_TTS_WARMUP_BUDGET_MS,
+          generate: async ({ audioId, text }) => {
             const resp = await fetch('/api/generate/tts', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                text: action.text,
+                text,
                 audioId,
                 ttsProviderId: settings.ttsProviderId,
                 ttsModelId: ttsProviderConfig?.modelId,
@@ -911,17 +887,15 @@ function GenerationPreviewContent() {
                 ttsBaseUrl: requestConfig.ttsBaseUrl,
                 ttsProviderOptions: providerOptions,
               }),
-              signal,
             });
-            if (!resp.ok) {
-              ttsFailCount++;
-              continue;
+
+            const ttsData = await resp
+              .json()
+              .catch(() => ({ success: false, error: resp.statusText || 'Invalid TTS response' }));
+            if (!resp.ok || !ttsData.success || !ttsData.base64 || !ttsData.format) {
+              throw new Error(ttsData.details || ttsData.error || `TTS request failed: HTTP ${resp.status}`);
             }
-            const ttsData = await resp.json();
-            if (!ttsData.success) {
-              ttsFailCount++;
-              continue;
-            }
+
             const binary = atob(ttsData.base64);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -932,20 +906,31 @@ function GenerationPreviewContent() {
               format: ttsData.format,
               createdAt: Date.now(),
             });
-          } catch (err) {
-            log.warn(`[TTS] Failed for ${audioId}:`, err);
-            ttsFailCount++;
-          }
-        }
+          },
+          onError: ({ audioId, error: ttsError }) => {
+            log.warn(`[TTS] Failed for ${audioId}:`, ttsError);
+          },
+        });
 
-        if (ttsFailCount > 0 && speechActions.length > 0) {
+        if (!ttsWarmup.timedOut && ttsWarmup.failedCount > 0) {
           throw new Error(t('generation.speechFailed'));
+        }
+        if (ttsWarmup.timedOut) {
+          log.warn('[GenerationPreview] First scene TTS warmup exceeded budget; continuing to classroom', {
+            budgetMs: FIRST_SCENE_TTS_WARMUP_BUDGET_MS,
+            totalSpeechActions: ttsWarmup.totalSpeechActions,
+          });
         }
       }
 
       // Add scene to store and navigate
       store.addScene(data.scene);
       store.setCurrentSceneId(data.scene.id);
+
+      await persistPlayableClassroom({
+        stage,
+        scenes: [data.scene],
+      });
 
       // Set remaining outlines as skeleton placeholders
       const remaining = outlines.filter((o) => o.order !== data.scene.order);
@@ -972,9 +957,42 @@ function GenerationPreviewContent() {
         });
       }
 
-      sessionStorage.removeItem('generationSession');
+      // #region debug-point A:before-classroom-push
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'classroom-needs-refresh',
+          runId: 'pre',
+          hypothesisId: 'A',
+          location: 'app/generation-preview/page.tsx:984',
+          msg: '[DEBUG] generation preview before classroom push',
+          data: {
+            classroomId: stage.id,
+            currentSceneId: data.scene.id,
+            scenesLength: useStageStore.getState().scenes.length,
+            outlinesLength: useStageStore.getState().outlines.length,
+            generatingOutlinesLength: useStageStore.getState().generatingOutlines.length,
+            hasGenerationParams: Boolean(sessionStorage.getItem('generationParams')),
+            hasGenerationSession: Boolean(sessionStorage.getItem('generationSession')),
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      if (shouldClearGenerationPreviewSession({ outcome: 'success' })) {
+        sessionStorage.removeItem('generationSession');
+      }
       await store.saveToStorage();
-      router.push(`/classroom/${stage.id}`);
+      const navigationTarget = getClassroomNavigationTarget({
+        classroomId: stage.id,
+        source: 'generation-preview',
+      });
+      if (navigationTarget.mode === 'hard') {
+        window.location.assign(navigationTarget.href);
+        return;
+      }
+      router.push(navigationTarget.href);
     } catch (err) {
       setIsOutlineStreaming(false);
       // AbortError is expected when navigating away — don't show as error
@@ -982,7 +1000,6 @@ function GenerationPreviewContent() {
         log.info('[GenerationPreview] Generation aborted');
         return;
       }
-      sessionStorage.removeItem('generationSession');
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -999,7 +1016,9 @@ function GenerationPreviewContent() {
     abortControllerRef.current?.abort();
     clearOutlineReviewTimer();
     outlineReviewIntentRef.current = false;
-    sessionStorage.removeItem('generationSession');
+    if (shouldClearGenerationPreviewSession({ outcome: 'exit' })) {
+      sessionStorage.removeItem('generationSession');
+    }
     router.push('/');
   };
 

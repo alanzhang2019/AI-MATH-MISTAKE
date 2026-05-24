@@ -357,10 +357,12 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
           },
 
           onSpeechProgress(ratio: number | null) {
+            if (type === 'lecture') return;
             onSpeechProgressRef.current?.(ratio);
           },
 
           onThinking(data: { stage: string; agentId?: string } | null) {
+            if (type === 'lecture') return;
             onThinkingRef.current?.(data);
           },
 
@@ -374,6 +376,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
                 cueUserReceived: true,
               };
             }
+            if (type === 'lecture') return;
             onCueUserRef.current?.(fromAgentId, prompt);
           },
 
@@ -404,10 +407,12 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
             fullText: string,
             agentId: string | null,
           ) {
+            if (type === 'lecture') return;
             onSegmentSealedRef.current?.(messageId, partId, fullText, agentId);
           },
 
           shouldHoldAfterReveal() {
+            if (type === 'lecture') return false;
             return shouldHoldAfterRevealRef.current?.() ?? (false as const);
           },
         },

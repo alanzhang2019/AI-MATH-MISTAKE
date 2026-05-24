@@ -24,7 +24,7 @@
  */
 
 import type { Scene } from '@/lib/types/stage';
-import type { Action, SpeechAction, DiscussionAction } from '@/lib/types/action';
+import type { Action, SpeechAction, DiscussionAction, WaitForInteractionAction } from '@/lib/types/action';
 import type {
   EngineMode,
   TopicState,
@@ -37,6 +37,7 @@ import type { AudioPlayer } from '@/lib/utils/audio-player';
 import { ActionEngine } from '@/lib/action/engine';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSettingsStore } from '@/lib/store/settings';
+import { readSubmittedState } from '@/lib/quiz/persistence';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('PlaybackEngine');
@@ -122,6 +123,7 @@ export class PlaybackEngine {
 
   /** idle → playing (from beginning) */
   start(): void {
+    console.log('[DEBUG PlaybackEngine] start() called. current mode:', this.mode);
     if (this.mode !== 'idle') {
       log.warn('Cannot start: not idle, current mode:', this.mode);
       return;
@@ -445,6 +447,32 @@ export class PlaybackEngine {
 
     const { action } = current;
 
+    // --- Check if we should skip this action (e.g. quiz explanation when answered correctly) ---
+    if (action.type === 'speech') {
+      const currentScene = this.scenes[this.sceneIndex];
+      if (currentScene.type === 'quiz') {
+        try {
+          const submitted = await readSubmittedState(currentScene.id);
+          if (submitted && 'results' in submitted && submitted.results) {
+            const allCorrect = submitted.results.every((r) => r.correct);
+            if (allCorrect) {
+              const waitActionIndex = currentScene.actions?.findIndex(
+                (a) => a.type === 'waitForInteraction'
+              ) ?? -1;
+              if (waitActionIndex !== -1 && this.actionIndex > waitActionIndex) {
+                log.info('Skipping quiz explanation speech because student answered correctly.');
+                this.actionIndex++;
+                this.processNext();
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          log.warn('Error checking quiz submission state for skipping', err);
+        }
+      }
+    }
+
     // Notify progress BEFORE advancing the cursor so the snapshot points at
     // the current action.  On restore the same action will be replayed — this
     // is the desired behaviour for speech (user may have only heard half).
@@ -588,6 +616,35 @@ export class PlaybackEngine {
         if (this.mode === 'playing') {
           this.processNext();
         }
+        break;
+      }
+
+      case 'waitForInteraction': {
+        const waitAction = action as WaitForInteractionAction;
+        if (waitAction.interactionType === 'quiz_submit') {
+          const currentScene = this.scenes[this.sceneIndex];
+          if (currentScene.type === 'quiz') {
+            try {
+              const submitted = await readSubmittedState(currentScene.id);
+              if (submitted && 'results' in submitted && submitted.results) {
+                // Quiz is graded! Continue.
+                if (this.mode === 'playing') this.processNext();
+              } else {
+                // Not submitted yet. Back up actionIndex to re-process this wait action
+                this.actionIndex--;
+                // Poll again in 1 second
+                setTimeout(() => {
+                  if (this.mode === 'playing') this.processNext();
+                }, 1000);
+              }
+            } catch (err) {
+              log.error('Failed to read quiz submitted state:', err);
+              this.processNext();
+            }
+            break;
+          }
+        }
+        this.processNext();
         break;
       }
 

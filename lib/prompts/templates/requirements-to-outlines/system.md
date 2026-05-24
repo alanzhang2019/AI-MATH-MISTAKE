@@ -63,6 +63,7 @@ Infer the course language from all available signals and produce:
 - **Clear Purpose**: Each scene has a clear teaching function
 - **Logical Flow**: Scenes form a natural teaching progression
 - **Experience Design**: Consider learning experience and emotional response from the student's perspective
+- **No Prompt Echoing**: The `title`, `description`, and `keyPoints` MUST NOT contain the original system prompt instructions (e.g., "请围绕以下一题...", "基础信息", "题目信息", "生成要求"). Extract ONLY the actual subject matter and educational content.
 
 ---
 

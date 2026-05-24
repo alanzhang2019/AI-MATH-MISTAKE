@@ -13,7 +13,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { streamLLM } from '@/lib/ai/llm';
+import { callLLM, streamLLM } from '@/lib/ai/llm';
 import { buildPrompt, PROMPT_IDS } from '@/lib/prompts';
 import {
   formatImageDescription,
@@ -24,6 +24,7 @@ import {
 } from '@/lib/generation/generation-pipeline';
 import type { AgentInfo } from '@/lib/generation/generation-pipeline';
 import { DEFAULT_LANGUAGE_DIRECTIVE } from '@/lib/generation/outline-generator';
+import { parseJsonResponse } from '@/lib/generation/json-repair';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
 import { nanoid } from 'nanoid';
 import type {
@@ -33,11 +34,54 @@ import type {
   ImageMapping,
 } from '@/lib/types/generation';
 import { apiError } from '@/lib/server/api-response';
+import { normalizeAiErrorMessage } from '@/lib/server/normalize-ai-error';
 import { createLogger } from '@/lib/logger';
 import { resolveModelFromRequest } from '@/lib/server/resolve-model';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
+
+async function generateOutlinesFallback(params: {
+  streamParams:
+    | {
+        model: unknown;
+        system: string;
+        prompt: string;
+        maxOutputTokens?: number;
+      }
+    | {
+        model: unknown;
+        system: string;
+        messages: Array<{ role: 'user'; content: unknown }>;
+        maxOutputTokens?: number;
+      };
+  thinkingConfig?: unknown;
+}): Promise<{ outlines: SceneOutline[]; languageDirective: string } | null> {
+  const result = await callLLM(
+    params.streamParams as Parameters<typeof callLLM>[0],
+    'scene-outlines-fallback',
+    undefined,
+    params.thinkingConfig as Parameters<typeof callLLM>[3],
+  );
+  const parsed = parseJsonResponse<
+    { languageDirective?: string; outlines?: SceneOutline[] } | SceneOutline[]
+  >(result.text);
+
+  const rawOutlines = Array.isArray(parsed) ? parsed : parsed?.outlines;
+  if (!rawOutlines || !Array.isArray(rawOutlines) || rawOutlines.length === 0) {
+    return null;
+  }
+
+  return {
+    outlines: rawOutlines.map((outline, index) => ({
+      ...outline,
+      id: outline.id || nanoid(),
+      order: index + 1,
+    })),
+    languageDirective:
+      (Array.isArray(parsed) ? undefined : parsed?.languageDirective) || DEFAULT_LANGUAGE_DIRECTIVE,
+  };
+}
 
 export function createSseWriter(params: {
   controller: ReadableStreamDefaultController<Uint8Array>;
@@ -422,7 +466,7 @@ export async function POST(req: NextRequest) {
                 }
               }
             } catch (error) {
-              lastError = error instanceof Error ? error.message : String(error);
+              lastError = normalizeAiErrorMessage(error);
               if (writer.isClosed()) break;
               log.warn(
                 `Outlines stream error detail (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}): ${lastError}`,
@@ -451,6 +495,21 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          if (parsedOutlines.length === 0 && !writer.isClosed()) {
+            try {
+              const fallback = await generateOutlinesFallback({
+                streamParams,
+                thinkingConfig,
+              });
+              if (fallback) {
+                parsedOutlines = fallback.outlines;
+                languageDirective = fallback.languageDirective;
+              }
+            } catch (fallbackError) {
+              lastError = normalizeAiErrorMessage(fallbackError);
+            }
+          }
+
           if (parsedOutlines.length > 0) {
             // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
             const uniquifiedOutlines = uniquifyMediaElementIds(parsedOutlines);
@@ -473,7 +532,7 @@ export async function POST(req: NextRequest) {
           if (!writer.isClosed()) {
             writer.sendEvent({
               type: 'error',
-              error: error instanceof Error ? error.message : String(error),
+              error: normalizeAiErrorMessage(error),
             });
           }
         } finally {
@@ -495,6 +554,6 @@ export async function POST(req: NextRequest) {
       `Outline streaming failed [requirement="${requirementSnippet ?? 'unknown'}...", model=${resolvedModelString ?? 'unknown'}]:`,
       error,
     );
-    return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
+    return apiError('INTERNAL_ERROR', 500, normalizeAiErrorMessage(error));
   }
 }

@@ -22,9 +22,6 @@ export function buildClientTTSRequestConfig(
   return {
     ttsApiKey: ttsProviderConfig?.apiKey || undefined,
     ttsBaseUrl:
-      ttsProviderConfig?.serverBaseUrl ||
-      ttsProviderConfig?.baseUrl ||
-      ttsProviderConfig?.customDefaultBaseUrl ||
-      undefined,
+      ttsProviderConfig?.baseUrl || ttsProviderConfig?.customDefaultBaseUrl || undefined,
   };
 }

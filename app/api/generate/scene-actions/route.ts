@@ -25,6 +25,7 @@ import type {
 import type { SpeechAction } from '@/lib/types/action';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { normalizeAiErrorMessage } from '@/lib/server/normalize-ai-error';
 import { resolveModelFromRequest } from '@/lib/server/resolve-model';
 
 const log = createLogger('Scene Actions API');
@@ -176,6 +177,6 @@ export async function POST(req: NextRequest) {
       `Scene actions generation failed [scene="${outlineTitle ?? 'unknown'}", model=${resolvedModelString ?? 'unknown'}]:`,
       error,
     );
-    return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
+    return apiError('INTERNAL_ERROR', 500, normalizeAiErrorMessage(error));
   }
 }

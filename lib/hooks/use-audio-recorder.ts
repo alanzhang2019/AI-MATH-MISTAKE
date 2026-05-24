@@ -143,7 +143,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
           };
 
           recognition.onerror = (event: { error: string }) => {
-            log.error('Speech recognition error:', event.error);
+            log.warn('Speech recognition error:', event.error);
             let errorMessage = '语音识别失败';
 
             switch (event.error) {

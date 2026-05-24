@@ -11,8 +11,6 @@ import { getHomeworkHomeContent } from '@/lib/mistake/ui/content';
 import { buildPendingRecognizeImageUrl } from '@/lib/mistake/ui/pending-recognize-image';
 import { startMistakePreview } from '@/lib/mistake/ui/start-mistake-preview';
 import { writePendingRecognizeSession } from '@/lib/mistake/ui/recognize-session';
-import { useUserProfileStore } from '@/lib/store/user-profile';
-import { MistakeOnboarding } from '@/components/onboarding/mistake-onboarding';
 import { useProfileStore } from '@/lib/store/profile';
 
 import { Camera } from 'lucide-react';
@@ -44,12 +42,6 @@ export default function MistakePage() {
   const [status, setStatus] = useState<PageStatus>('idle');
   const [error, setError] = useState('');
   const homeContent = getHomeworkHomeContent(t);
-
-  const { isInitialized, hasLoadedFromServer, fetchProfile, studentName, grade, teachingStyle } = useUserProfileStore();
-
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
 
   const previewUrl = useMemo(() => {
     if (!image) {
@@ -126,9 +118,9 @@ export default function MistakePage() {
         problemText: extraction.problemText,
         studentAnswer: extraction.studentAnswer,
         correctAnswer: extraction.correctAnswerCandidate,
-        studentName: activeProfile?.name || studentName,
-        grade: activeProfile?.grade || grade,
-        teachingStyle: activeProfile?.teachingStyle || teachingStyle,
+        studentName: activeProfile?.name || '学生',
+        grade: activeProfile?.grade || 4,
+        teachingStyle: activeProfile?.teachingStyle || '幽默风趣',
         studentProfileId: activeProfile?.id,
       });
       setStatus('starting_preview');
@@ -232,10 +224,6 @@ export default function MistakePage() {
       </Card>
 
       <p className="text-sm font-medium text-muted-foreground/60 text-center animate-in fade-in duration-1000 delay-500 fill-mode-both">{homeContent.parentHint}</p>
-
-      {hasLoadedFromServer && !isInitialized && (
-        <MistakeOnboarding />
-      )}
     </main>
   );
 }

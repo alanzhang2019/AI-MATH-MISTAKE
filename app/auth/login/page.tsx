@@ -16,7 +16,10 @@ export default function LoginPage() {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) return alert("Registration failed");
+      if (!res.ok) {
+        const errorMsg = await res.text();
+        return alert(`Registration failed: ${errorMsg}`);
+      }
     }
     
     const result = await signIn("credentials", {

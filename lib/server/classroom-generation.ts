@@ -390,69 +390,83 @@ export async function generateClassroom(
   let generatedScenes = 0;
   let playablePersisted = false;
 
-  for (const [index, outline] of outlines.entries()) {
-    const safeOutline = applyOutlineFallbacks(outline, true);
-    const progressStart = 30 + Math.floor((index / Math.max(outlines.length, 1)) * 60);
+  let nextIndexToInsert = 0;
+  const pendingResults = new Map<number, { safeOutline: any; content: any; actions: any } | null>();
 
-    await options.onProgress?.({
-      step: 'generating_scenes',
-      progress: Math.max(progressStart, 31),
-      message: `Generating scene ${index + 1}/${outlines.length}: ${safeOutline.title}`,
-      scenesGenerated: generatedScenes,
-      totalScenes: outlines.length,
-    });
+  await Promise.all(
+    outlines.map(async (outline, index) => {
+      const safeOutline = applyOutlineFallbacks(outline, true);
+      const progressStart = 30 + Math.floor((index / Math.max(outlines.length, 1)) * 60);
 
-    const content = await generateSceneContent(safeOutline, aiCall, { agents, languageDirective });
-    if (!content) {
-      log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
-      continue;
-    }
-
-    const actions = await generateSceneActions(safeOutline, content, aiCall, {
-      agents,
-      languageDirective,
-    });
-    log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
-
-    const sceneId = createSceneWithActions(safeOutline, content, actions, api);
-    if (!sceneId) {
-      log.warn(`Skipping scene "${safeOutline.title}" — scene creation failed`);
-      continue;
-    }
-
-    generatedScenes += 1;
-    const progressEnd = 30 + Math.floor(((index + 1) / Math.max(outlines.length, 1)) * 60);
-    await options.onProgress?.({
-      step: 'generating_scenes',
-      progress: Math.min(progressEnd, 90),
-      message: `Generated ${generatedScenes}/${outlines.length} scenes`,
-      scenesGenerated: generatedScenes,
-      totalScenes: outlines.length,
-    });
-
-    if (shouldPersistPlayableClassroom(generatedScenes, playablePersisted)) {
-      const playableScenes = store.getState().scenes;
-      const persisted = await persistClassroom(
-        {
-          id: stageId,
-          stage,
-          scenes: playableScenes,
-        },
-        options.baseUrl,
-      );
-
-      playablePersisted = true;
-
-      await options.onPlayable?.({
-        id: persisted.id,
-        url: persisted.url,
-        stage,
-        scenes: playableScenes,
-        scenesCount: playableScenes.length,
-        createdAt: persisted.createdAt,
+      await options.onProgress?.({
+        step: 'generating_scenes',
+        progress: Math.max(progressStart, 31),
+        message: `Generating scene ${index + 1}/${outlines.length}: ${safeOutline.title}`,
+        scenesGenerated: generatedScenes,
+        totalScenes: outlines.length,
       });
-    }
-  }
+
+      const content = await generateSceneContent(safeOutline, aiCall, { agents, languageDirective });
+      if (!content) {
+        log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
+        pendingResults.set(index, null);
+      } else {
+        const actions = await generateSceneActions(safeOutline, content, aiCall, {
+          agents,
+          languageDirective,
+        });
+        log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+        pendingResults.set(index, { safeOutline, content, actions });
+      }
+
+      // Synchronize insertion into the store in order
+      while (pendingResults.has(nextIndexToInsert)) {
+        const res = pendingResults.get(nextIndexToInsert);
+        pendingResults.delete(nextIndexToInsert);
+        
+        if (res) {
+          const sceneId = createSceneWithActions(res.safeOutline, res.content, res.actions, api);
+          if (!sceneId) {
+            log.warn(`Skipping scene "${res.safeOutline.title}" — scene creation failed`);
+          } else {
+            generatedScenes += 1;
+            const progressEnd = 30 + Math.floor(((nextIndexToInsert + 1) / Math.max(outlines.length, 1)) * 60);
+            await options.onProgress?.({
+              step: 'generating_scenes',
+              progress: Math.min(progressEnd, 90),
+              message: `Generated ${generatedScenes}/${outlines.length} scenes`,
+              scenesGenerated: generatedScenes,
+              totalScenes: outlines.length,
+            });
+
+            if (shouldPersistPlayableClassroom(generatedScenes, playablePersisted)) {
+              const playableScenes = store.getState().scenes;
+              const persisted = await persistClassroom(
+                {
+                  id: stageId,
+                  stage,
+                  scenes: playableScenes,
+                },
+                options.baseUrl,
+              );
+
+              playablePersisted = true;
+
+              await options.onPlayable?.({
+                id: persisted.id,
+                url: persisted.url,
+                stage,
+                scenes: playableScenes,
+                scenesCount: playableScenes.length,
+                createdAt: persisted.createdAt,
+              });
+            }
+          }
+        }
+        nextIndexToInsert++;
+      }
+    })
+  );
 
   const scenes = store.getState().scenes;
   log.info(`Pipeline complete: ${scenes.length} scenes generated`);

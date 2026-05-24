@@ -15,6 +15,7 @@ import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@/lib/audio/voxcpm';
+import { getTeacherVoice } from '@/lib/server/teacher-voice';
 
 const log = createLogger('TTS API');
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   let audioId: string | undefined;
   try {
     const body = await req.json();
-    const { text, ttsModelId, ttsSpeed, ttsApiKey, ttsBaseUrl, ttsProviderOptions } = body as {
+    let { text, ttsModelId, ttsSpeed, ttsApiKey, ttsBaseUrl, ttsProviderOptions } = body as {
       text: string;
       audioId: string;
       ttsProviderId: TTSProviderId;
@@ -40,6 +41,22 @@ export async function POST(req: NextRequest) {
     ttsProviderId = body.ttsProviderId;
     ttsVoice = body.ttsVoice;
     audioId = body.audioId;
+
+    // Hardcode teacher voice clone if VoxCPM is used.
+    if (ttsProviderId === VOXCPM_TTS_PROVIDER_ID) {
+      const teacherVoice = getTeacherVoice();
+      if (teacherVoice.audio && teacherVoice.text) {
+        ttsProviderOptions = {
+          ...(ttsProviderOptions || {}),
+          voiceMode: 'clone',
+          referenceAudioBase64: teacherVoice.audio,
+          referenceAudioMimeType: teacherVoice.mimeType,
+          referenceAudioName: teacherVoice.fileName,
+          promptText: teacherVoice.text,
+        };
+        ttsVoice = 'voxcpm:teacher-clone';
+      }
+    }
 
     // Validate required fields
     if (!text || !audioId || !ttsProviderId || !ttsVoice) {

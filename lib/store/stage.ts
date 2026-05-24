@@ -67,6 +67,12 @@ interface StageState {
 
   // Actions
   setStage: (stage: Stage) => void;
+  replaceStageSnapshot: (snapshot: {
+    stage: Stage;
+    scenes: Scene[];
+    currentSceneId: string | null;
+    chats: ChatSession[];
+  }) => void;
   setScenes: (scenes: Scene[]) => void;
   addScene: (scene: Scene) => void;
   updateScene: (sceneId: string, updates: Partial<Scene>) => void;
@@ -91,7 +97,7 @@ interface StageState {
 
   // Storage
   saveToStorage: () => Promise<void>;
-  loadFromStorage: (stageId: string) => Promise<void>;
+  loadFromStorage: (stageId: string, options?: { force?: boolean }) => Promise<void>;
   clearStore: () => void;
 }
 
@@ -117,6 +123,17 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       scenes: [],
       currentSceneId: null,
       chats: [],
+      generationEpoch: s.generationEpoch + 1,
+    }));
+    debouncedSave();
+  },
+
+  replaceStageSnapshot: ({ stage, scenes, currentSceneId, chats }) => {
+    set((s) => ({
+      stage,
+      scenes,
+      currentSceneId,
+      chats,
       generationEpoch: s.generationEpoch + 1,
     }));
     debouncedSave();
@@ -267,12 +284,12 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     }
   },
 
-  loadFromStorage: async (stageId: string) => {
+  loadFromStorage: async (stageId: string, options?: { force?: boolean }) => {
     try {
       // Skip IndexedDB load if the store already has this stage with scenes
       // (e.g. navigated from generation-preview with fresh in-memory data)
       const currentState = get();
-      if (currentState.stage?.id === stageId && currentState.scenes.length > 0) {
+      if (!options?.force && currentState.stage?.id === stageId && currentState.scenes.length > 0) {
         log.info('Stage already loaded in memory, skipping IndexedDB load:', stageId);
         return;
       }
@@ -286,11 +303,13 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       const outlines = outlinesRecord?.outlines || [];
 
       if (data) {
-        set({
+        get().replaceStageSnapshot({
           stage: data.stage,
           scenes: data.scenes,
           currentSceneId: data.currentSceneId,
           chats: data.chats,
+        });
+        set({
           outlines,
           // Compute generatingOutlines from persisted outlines minus completed scenes
           generatingOutlines: outlines.filter((o) => !data.scenes.some((s) => s.order === o.order)),

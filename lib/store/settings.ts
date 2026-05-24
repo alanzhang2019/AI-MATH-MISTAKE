@@ -342,8 +342,8 @@ const getDefaultProvidersConfig = (): ProvidersConfig => {
 
 // Initialize default audio config
 const getDefaultAudioConfig = () => ({
-  ttsProviderId: 'browser-native-tts' as TTSProviderId,
-  ttsVoice: 'default',
+  ttsProviderId: 'siliconflow-tts' as TTSProviderId,
+  ttsVoice: 'FunAudioLLM/CosyVoice2-0.5B:alex',
   ttsSpeed: 1.0,
   asrProviderId: 'browser-native' as ASRProviderId,
   asrLanguage: 'zh',
@@ -368,6 +368,7 @@ const getDefaultAudioConfig = () => ({
       modelId: 'kokoro-v1',
       enabled: false,
     },
+    'siliconflow-tts': { apiKey: '', baseUrl: '', modelId: 'FunAudioLLM/CosyVoice2-0.5B', enabled: true },
     'browser-native-tts': { apiKey: '', baseUrl: '', enabled: true },
   } as Record<
     TTSProviderId,
@@ -731,9 +732,9 @@ export const useSettingsStore = create<SettingsState>()(
       const initialProvidersConfig = migratedData?.providersConfig || getDefaultProvidersConfig();
 
       return {
-        // Initial state (use migrated data if available)
-        providerId: migratedData?.providerId || 'openai',
-        modelId: migratedData?.modelId || '',
+          // Initial state (use migrated data if available)
+          providerId: migratedData?.providerId || 'kimi',
+          modelId: migratedData?.modelId || 'moonshotai/kimi-k2.5',
         thinkingConfigs: pruneThinkingConfigs(
           migratedData?.thinkingConfigs || {},
           initialProvidersConfig,
@@ -748,7 +749,7 @@ export const useSettingsStore = create<SettingsState>()(
         // Playback controls
         ttsMuted: false,
         ttsVolume: 1,
-        autoPlayLecture: false,
+        autoPlayLecture: true,
         playbackSpeed: 1,
 
         // Layout preferences
@@ -773,7 +774,7 @@ export const useSettingsStore = create<SettingsState>()(
         videoGenerationEnabled: false,
         reviewOutlineEnabled: false,
 
-        // Audio feature toggles (on by default)
+        // Audio feature toggles
         ttsEnabled: true,
         asrEnabled: true,
 
@@ -1444,8 +1445,8 @@ export const useSettingsStore = create<SettingsState>()(
                       ? serverModels[0]
                       : PROVIDERS[pid as ProviderId]?.models[0]?.id;
                     if (modelId) {
-                      autoProviderId = pid as ProviderId;
-                      autoModelId = modelId;
+                      autoProviderId = 'kimi' as ProviderId;
+                      autoModelId = 'moonshotai/kimi-k2.5';
                       break;
                     }
                   }
@@ -1529,10 +1530,21 @@ export const useSettingsStore = create<SettingsState>()(
     },
     {
       name: 'settings-storage',
-      version: 2,
+      version: 11,
       // Migrate persisted state
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<SettingsState>;
+
+        if (version < 11) {
+          state.autoPlayLecture = true;
+        }
+
+        if (version < 10) {
+          state.providerId = 'kimi';
+          state.modelId = 'moonshotai/kimi-k2.5';
+          state.ttsProviderId = 'siliconflow-tts';
+          state.ttsVoice = 'FunAudioLLM/CosyVoice2-0.5B:alex';
+        }
 
         // v0 → v1: clear hardcoded default model so user must actively select
         if (version === 0) {

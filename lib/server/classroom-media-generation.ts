@@ -34,7 +34,12 @@ import type { ImageProviderId } from '@/lib/media/types';
 import type { VideoProviderId } from '@/lib/media/types';
 import type { TTSProviderId } from '@/lib/audio/types';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
-import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@/lib/audio/voxcpm';
+import {
+  buildAutoVoxCPMVoicePrompt,
+  VOXCPM_AUTO_VOICE_ID,
+  VOXCPM_TTS_PROVIDER_ID,
+} from '@/lib/audio/voxcpm';
+import { getTeacherVoice } from '@/lib/server/teacher-voice';
 
 const log = createLogger('ClassroomMedia');
 
@@ -61,6 +66,39 @@ async function downloadToBuffer(url: string): Promise<Buffer> {
 
 function mediaServingUrl(baseUrl: string, classroomId: string, subPath: string): string {
   return `${baseUrl}/api/classroom-media/${classroomId}/${subPath}`;
+}
+
+export function resolveServerTTSRequestConfig(providerId: string, voice: string) {
+  if (providerId === VOXCPM_TTS_PROVIDER_ID) {
+    // Check if we have a teacher voice to clone
+    const teacherVoice = getTeacherVoice();
+    if (teacherVoice.audio && teacherVoice.text) {
+      return {
+        voice: 'voxcpm:teacher-clone',
+        providerOptions: {
+          voiceMode: 'clone',
+          referenceAudioBase64: teacherVoice.audio,
+          referenceAudioMimeType: teacherVoice.mimeType,
+          referenceAudioName: teacherVoice.fileName,
+          promptText: teacherVoice.text,
+        },
+      };
+    }
+    
+    if (voice === VOXCPM_AUTO_VOICE_ID) {
+      return {
+        voice,
+        providerOptions: {
+          voicePrompt: buildAutoVoxCPMVoicePrompt(),
+        },
+      };
+    }
+  }
+
+  return {
+    voice,
+    providerOptions: undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -238,12 +276,10 @@ export async function generateTTSForClassroom(
     return;
   }
   const ttsBaseUrl = resolveTTSBaseUrl(providerId) || ttsProvider?.defaultBaseUrl;
-  const voice = DEFAULT_TTS_VOICES[providerId as keyof typeof DEFAULT_TTS_VOICES] || 'default';
+  const defaultVoice = DEFAULT_TTS_VOICES[providerId as keyof typeof DEFAULT_TTS_VOICES] || 'default';
+  const resolvedVoiceConfig = resolveServerTTSRequestConfig(providerId, defaultVoice);
+  const voice = resolvedVoiceConfig.voice;
   const format = ttsProvider?.supportedFormats?.[0] || 'mp3';
-  if (providerId === VOXCPM_TTS_PROVIDER_ID && voice === VOXCPM_AUTO_VOICE_ID) {
-    log.warn('VoxCPM Auto Voice requires agent context; skipping server-side TTS generation');
-    return;
-  }
 
   for (const scene of scenes) {
     if (!scene.actions) continue;
@@ -270,6 +306,9 @@ export async function generateTTSForClassroom(
             baseUrl: ttsBaseUrl,
             voice,
             speed: speechAction.speed,
+            ...(resolvedVoiceConfig.providerOptions
+              ? { providerOptions: resolvedVoiceConfig.providerOptions }
+              : {}),
           },
           speechAction.text,
         );

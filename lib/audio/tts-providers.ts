@@ -142,8 +142,9 @@ export async function generateTTS(
   }
 
   switch (config.providerId) {
-    case 'openai-tts':
-      return await generateOpenAITTS(config, text);
+      case 'openai-tts':
+      case 'siliconflow-tts':
+        return await generateOpenAITTS(config, text);
 
     case 'azure-tts':
       return await generateAzureTTS(config, text);

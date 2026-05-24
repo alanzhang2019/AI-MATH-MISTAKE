@@ -214,6 +214,12 @@ export interface WidgetRevealAction extends ActionBase {
   content?: string;
 }
 
+/** Wait for interaction — pause playback until a specific user interaction occurs */
+export interface WaitForInteractionAction extends ActionBase {
+  type: 'waitForInteraction';
+  interactionType: 'quiz_submit' | 'button_click';
+}
+
 // ==================== Union type ====================
 
 export type Action =
@@ -237,7 +243,8 @@ export type Action =
   | WidgetHighlightAction
   | WidgetSetStateAction
   | WidgetAnnotationAction
-  | WidgetRevealAction;
+  | WidgetRevealAction
+  | WaitForInteractionAction;
 
 export type ActionType = Action['type'];
 
@@ -268,6 +275,7 @@ export const SYNC_ACTIONS: ActionType[] = [
   'widget_setState',
   'widget_annotation',
   'widget_reveal',
+  'waitForInteraction',
 ];
 
 // ==================== Canvas utility types (non-action) ====================

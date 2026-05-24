@@ -7,6 +7,7 @@ import {
   persistClassroom,
   readClassroom,
 } from '@/lib/server/classroom-storage';
+import { generateTTSForClassroom } from '@/lib/server/classroom-media-generation';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('Classroom API');
@@ -30,6 +31,15 @@ export async function POST(request: NextRequest) {
 
     const id = stage.id || randomUUID();
     const baseUrl = buildRequestOrigin(request);
+
+    try {
+      await generateTTSForClassroom(scenes, id, baseUrl);
+    } catch (ttsError) {
+      log.warn(
+        `Classroom TTS generation failed [stageId=${id}, scenes=${sceneCount ?? 0}], persisting without audioUrl:`,
+        ttsError,
+      );
+    }
 
     const persisted = await persistClassroom({ id, stage: { ...stage, id }, scenes }, baseUrl);
 
@@ -67,6 +77,29 @@ export async function GET(request: NextRequest) {
     const classroom = await readClassroom(id);
     if (!classroom) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom not found');
+    }
+
+    const baseUrl = buildRequestOrigin(request);
+    const needsAudioBackfill = classroom.scenes.some((scene) =>
+      (scene.actions ?? []).some(
+        (action) => action.type === 'speech' && action.audioId && !(action as { audioUrl?: string }).audioUrl,
+      ),
+    );
+
+    if (needsAudioBackfill) {
+      try {
+        await generateTTSForClassroom(classroom.scenes, classroom.id, baseUrl);
+        await persistClassroom(
+          {
+            id: classroom.id,
+            stage: classroom.stage,
+            scenes: classroom.scenes,
+          },
+          baseUrl,
+        );
+      } catch (ttsError) {
+        log.warn(`Classroom audio backfill failed [id=${classroom.id}]:`, ttsError);
+      }
     }
 
     return apiSuccess({ classroom });

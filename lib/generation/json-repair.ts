@@ -147,28 +147,26 @@ export function tryParseJson<T>(jsonStr: string): T | null {
     // The object-context prefix/suffix guards keep valid JSON strings intact.
     fixed = repairQuotedPropertyFragments(fixed);
 
-    // Fix 1: Handle LaTeX-style escapes that break JSON (e.g., \frac, \left, \right, \times, etc.)
-    // These are common in math content and need to be double-escaped
-    // Match backslash followed by letters (LaTeX commands) inside strings,
-    // but skip valid JSON escape sequences (\b, \f, \n, \r, \t, \u)
-    fixed = fixed.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (_match, content) => {
-      // Double-escape backslash+letter ONLY for non-JSON-escape letters
-      const fixedContent = content.replace(/\\([a-zA-Z])/g, (_m: string, ch: string) => {
-        // Preserve valid JSON escape sequences
-        if ('bfnrtu'.includes(ch)) return `\\${ch}`;
-        return `\\\\${ch}`;
-      });
-      return `"${fixedContent}"`;
+    // Fix 1: Handle LaTeX-style escapes that break JSON
+    // These are common in math content and need to be double-escaped.
+    // First, handle backslash followed by letters (LaTeX commands vs \n, \t, etc)
+    fixed = fixed.replace(/(?<!\\)\\([a-zA-Z]+)/g, (match, word) => {
+      // Only preserve literal exact JSON escapes (n, r, t, u)
+      // Note: we exclude 'b' and 'f' because in math context, \begin and \frac
+      // are far more likely than backspace or form-feed.
+      if (word === 'n' || word === 'r' || word === 't' || word === 'u') {
+        return match;
+      }
+      return '\\\\' + word;
     });
 
-    // Fix 2: Fix other invalid escape sequences (e.g., \S, \L, etc.)
-    // Valid JSON escapes: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
-    fixed = fixed.replace(/\\([^"\\\/bfnrtu\n\r])/g, (match, char) => {
-      // If it's a letter, it's likely a LaTeX command
-      if (/[a-zA-Z]/.test(char)) {
-        return '\\\\' + char;
+    // Then, handle backslash followed by non-letters (like \(, \{, \%, \[, etc)
+    fixed = fixed.replace(/(?<!\\)\\([^a-zA-Z])/g, (match, char) => {
+      // Preserve valid JSON punctuation escapes
+      if (char === '"' || char === '\\' || char === '/') {
+        return match;
       }
-      return match;
+      return '\\\\' + char;
     });
 
     // Fix 3: Try to fix truncated JSON arrays/objects

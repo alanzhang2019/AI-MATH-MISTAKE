@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { replaceMediaPlaceholders } from '@/lib/server/classroom-media-generation';
+import {
+  replaceMediaPlaceholders,
+  resolveServerTTSRequestConfig,
+} from '@/lib/server/classroom-media-generation';
+import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@/lib/audio/voxcpm';
 import type { Scene } from '@/lib/types/stage';
 
 function slideScene(
@@ -41,5 +45,18 @@ describe('classroom media placeholder replacement', () => {
     };
     const video = content.canvas.elements[0];
     expect(video.src).toBe('https://example.com/direct.mp4');
+  });
+});
+
+describe('resolveServerTTSRequestConfig', () => {
+  test('downgrades VoxCPM auto voice to a prompt-based server request', () => {
+    const resolved = resolveServerTTSRequestConfig(VOXCPM_TTS_PROVIDER_ID, VOXCPM_AUTO_VOICE_ID);
+
+    expect(resolved).toEqual({
+      voice: VOXCPM_AUTO_VOICE_ID,
+      providerOptions: {
+        voicePrompt: 'natural classroom voice',
+      },
+    });
   });
 });

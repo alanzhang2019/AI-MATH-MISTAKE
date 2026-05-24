@@ -19,6 +19,11 @@ import { useWidgetIframeStore } from '@/lib/store/widget-iframe';
 import type { AudioIndicatorState } from '@/components/roundtable/audio-indicator';
 import type { Action, DiscussionAction, SpeechAction } from '@/lib/types/action';
 import { cn } from '@/lib/utils';
+import { getNextHomeworkPresentationState } from '@/lib/mistake/ui/homework-presentation-state';
+import {
+  getNextHomeworkWhiteboardOpenState,
+  shouldEnableHomeworkWhiteboard,
+} from '@/lib/mistake/ui/homework-whiteboard-guard';
 // Playback state persistence removed — refresh always starts from the beginning
 import { ChatArea, type ChatAreaRef } from '@/components/chat/chat-area';
 import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/registry/store';
@@ -43,8 +48,14 @@ import { VisuallyHidden } from 'radix-ui';
  */
 export function Stage({
   onRetryOutline,
+  onLectureComplete,
+  defaultPresentation = false,
+  autoPlay = false,
 }: {
   onRetryOutline?: (outlineId: string) => Promise<void>;
+  onLectureComplete?: () => void;
+  defaultPresentation?: boolean;
+  autoPlay?: boolean;
 }) {
   const { t } = useI18n();
   const {
@@ -59,6 +70,42 @@ export function Stage({
   const failedOutlines = useStageStore.use.failedOutlines();
 
   const currentScene = getCurrentScene();
+
+  useEffect(() => {
+    // #region debug-point A:stage-snapshot
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'mistake-classroom-regression',
+        runId: 'pre',
+        hypothesisId: 'A',
+        location: 'components/stage.tsx:64',
+        msg: '[DEBUG] stage render snapshot',
+        data: {
+          currentSceneId,
+          currentSceneType: currentScene?.type ?? null,
+          currentSceneTitle: currentScene?.title ?? null,
+          scenesLength: scenes.length,
+          outlinesLength: outlines.length,
+          generatingOutlinesLength: generatingOutlines.length,
+          currentSceneCanvasElementsLength:
+            currentScene?.type === 'slide' && currentScene.content.type === 'slide'
+              ? currentScene.content.canvas.elements.length
+              : null,
+        },
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [
+    currentScene?.id,
+    currentScene?.title,
+    currentScene?.type,
+    currentSceneId,
+    generatingOutlines.length,
+    outlines.length,
+    scenes.length,
+  ]);
 
   // Layout state from settings store (persisted via localStorage)
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
@@ -106,13 +153,51 @@ export function Stage({
 
   // Scene switch confirmation dialog state
   const [pendingSceneId, setPendingSceneId] = useState<string | null>(null);
-  const [isPresenting, setIsPresenting] = useState(false);
+  const [isPresenting, setIsPresenting] = useState(defaultPresentation);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isPresentationInteractionActive, setIsPresentationInteractionActive] = useState(false);
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
   const setWhiteboardOpen = useCanvasStore.use.setWhiteboardOpen();
+  const whiteboardEnabled = shouldEnableHomeworkWhiteboard({ defaultPresentation });
+
+  useEffect(() => {
+    // #region debug-point A:stage-presentation
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'mistake-classroom-regression',
+        runId: 'pre',
+        hypothesisId: 'A',
+        location: 'components/stage.tsx:161',
+        msg: '[DEBUG] stage presentation snapshot',
+        data: {
+          defaultPresentation,
+          isPresenting,
+          controlsVisible,
+          isPresentationInteractionActive,
+          engineMode,
+          currentSceneId,
+          generatingOutlinesLength: generatingOutlines.length,
+          whiteboardOpen,
+          whiteboardEnabled,
+        },
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [
+    controlsVisible,
+    currentSceneId,
+    defaultPresentation,
+    engineMode,
+    generatingOutlines.length,
+    isPresenting,
+    isPresentationInteractionActive,
+    whiteboardEnabled,
+    whiteboardOpen,
+  ]);
 
   // Selected agents from settings store (Zustand)
   const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
@@ -167,6 +252,7 @@ export function Stage({
   const audioPlayerRef = useRef(createAudioPlayer());
   const chatAreaRef = useRef<ChatAreaRef>(null);
   const lectureSessionIdRef = useRef<string | null>(null);
+  const lectureCompleteNotifiedRef = useRef(false);
   const lectureActionCounterRef = useRef(0);
   const discussionAbortRef = useRef<AbortController | null>(null);
   const presentationIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -307,7 +393,12 @@ export function Stage({
   useEffect(() => {
     const onFullscreenChange = () => {
       const active = document.fullscreenElement === stageRef.current;
-      setIsPresenting(active);
+      setIsPresenting(
+        getNextHomeworkPresentationState({
+          defaultPresentation,
+          isFullscreenActive: active,
+        }),
+      );
 
       if (!active) {
         // Ensure keyboard unlock on any fullscreen exit
@@ -320,7 +411,7 @@ export function Stage({
 
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, [clearPresentationIdleTimer]);
+  }, [clearPresentationIdleTimer, defaultPresentation]);
 
   useEffect(() => {
     if (!isPresenting) {
@@ -358,6 +449,8 @@ export function Stage({
 
   // Initialize playback engine when scene changes
   useEffect(() => {
+    console.log('[DEBUG Stage] useEffect triggered for currentScene:', currentScene?.id, 'title:', currentScene?.title);
+    
     // Bump epoch so any stale SSE callbacks from the previous scene are discarded
     sceneEpochRef.current++;
 
@@ -543,22 +636,67 @@ export function Stage({
 
     engineRef.current = engine;
 
-    // Auto-start if triggered by auto-play scene advance
-    if (autoStartRef.current) {
+    // Auto-start if triggered by auto-play scene advance or user preference
+    const shouldAutoStart =
+      autoPlay || autoStartRef.current || useSettingsStore.getState().autoPlayLecture;
+    
+    // Create a local variable to hold the timer so we can clear it if unmounted/re-rendered
+    let startTimer: NodeJS.Timeout | null = null;
+    let isActive = true;
+    
+    if (shouldAutoStart) {
       autoStartRef.current = false;
-      (async () => {
-        if (currentScene && chatAreaRef.current) {
-          const sessionId = await chatAreaRef.current.startLecture(currentScene.id);
-          lectureSessionIdRef.current = sessionId;
-          lectureActionCounterRef.current = 0;
-        }
-        engine.start();
-      })();
+      // Use a small timeout to allow UI to settle before starting playback
+      startTimer = setTimeout(() => {
+        console.log('[DEBUG Stage] shouldAutoStart timer fired, starting engine');
+        (async () => {
+          if (currentScene && chatAreaRef.current) {
+            const sessionId = await chatAreaRef.current.startLecture(currentScene.id);
+            if (!isActive) return;
+            lectureSessionIdRef.current = sessionId;
+            lectureActionCounterRef.current = 0;
+          }
+          if (isActive) {
+            engine.start();
+          }
+        })();
+      }, 300);
     } else {
       // Load saved playback state and restore position (but never auto-play).
     }
+    
+    return () => {
+      isActive = false;
+      if (startTimer) clearTimeout(startTimer);
+      engine.stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when scene changes, functions are stable refs
-  }, [currentScene]);
+  }, [currentScene?.id, autoPlay]);
+
+  useEffect(() => {
+    if (!playbackCompleted || lectureCompleteNotifiedRef.current) {
+      return;
+    }
+
+    lectureCompleteNotifiedRef.current = true;
+    onLectureComplete?.();
+  }, [onLectureComplete, playbackCompleted]);
+
+  useEffect(() => {
+    lectureCompleteNotifiedRef.current = false;
+  }, [currentSceneId]);
+
+  useEffect(() => {
+    setIsPresenting(defaultPresentation);
+  }, [defaultPresentation]);
+
+  useEffect(() => {
+    if (whiteboardEnabled || !whiteboardOpen) {
+      return;
+    }
+
+    setWhiteboardOpen(false);
+  }, [setWhiteboardOpen, whiteboardEnabled, whiteboardOpen]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -794,7 +932,12 @@ export function Stage({
 
   // whiteboard toggle
   const handleWhiteboardToggle = () => {
-    setWhiteboardOpen(!whiteboardOpen);
+    setWhiteboardOpen(
+      getNextHomeworkWhiteboardOpenState({
+        defaultPresentation,
+        whiteboardOpen,
+      }),
+    );
   };
 
   const isPresentationShortcutTarget = useCallback((target: EventTarget | null) => {
@@ -1003,6 +1146,7 @@ export function Stage({
             onNextSlide={handleNextScene}
             onPlayPause={handlePlayPause}
             onWhiteboardClose={handleWhiteboardToggle}
+            whiteboardEnabled={whiteboardEnabled}
             isPresenting={isPresenting}
             onTogglePresentation={togglePresentation}
             showStopDiscussion={
@@ -1016,6 +1160,7 @@ export function Stage({
             isGenerationFailed={
               isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
             }
+            hasVisibleLectureContent={Boolean(lectureSpeech || liveSpeech || firstSpeechText)}
             onRetryGeneration={
               onRetryOutline && generatingOutlines[0]
                 ? () => onRetryOutline(generatingOutlines[0].id)
@@ -1156,6 +1301,7 @@ export function Stage({
               onPrevSlide={handlePreviousScene}
               onNextSlide={handleNextScene}
               onWhiteboardClose={handleWhiteboardToggle}
+              whiteboardEnabled={whiteboardEnabled}
               isPresenting={isPresenting}
               controlsVisible={controlsVisible}
               onTogglePresentation={togglePresentation}

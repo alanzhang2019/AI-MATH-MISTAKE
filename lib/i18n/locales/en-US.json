@@ -1054,5 +1054,84 @@
     "title": "Enter Access Code",
     "placeholder": "Access code",
     "error": "Invalid access code. Please try again."
+  },
+  "homeworkHome": {
+    "title": "Stuck on homework? Snap it and get it explained right away",
+    "subtitle": "It does not just give the answer. It explains step by step how to think about the problem.",
+    "ctaPrimary": "Snap A Homework Problem",
+    "ctaSecondary": "See Today's Problems",
+    "sceneHint": "Made for upper-elementary math homework help",
+    "value1": "Understand the idea before checking whether you can solve it",
+    "value2": "Practice 1 more similar problem to see if you really learned it",
+    "value3": "Problems you worked on are remembered for you",
+    "uploadHint": "Supports single math problems from homework sheets, workbooks, or tests",
+    "uploadTip": "Try to capture just one problem each time for better explanations",
+    "parentHint": "What parents need to know is not how long the lesson was, but whether this kind of problem is now understood.",
+    "emptyTitle": "No problems worked on yet",
+    "emptyDesc": "Snap one problem to get started and solve the one that is blocking today's homework."
+  },
+  "homeworkLoading": {
+    "title": "Looking at this problem...",
+    "desc": "First it figures out what the problem is testing, then it explains it in a simple way."
+  },
+  "homeworkRecognize": {
+    "title": "Check the problem first",
+    "desc": "Here is what was recognized from the photo. Please make sure it looks right.",
+    "confirm": "Looks Right, Continue",
+    "retry": "Recognition Is Wrong, Upload Again",
+    "failTitle": "The problem was not clear this time",
+    "failDesc": "Try taking another photo and keep only one problem in the frame."
+  },
+  "homeworkCommon": {
+    "systemError": "This attempt did not finish successfully. Try another problem or come back later.",
+    "retry": "Try Again",
+    "backHome": "Back Home"
+  },
+  "homeworkResult": {
+    "title": "Let's work through this problem together",
+    "desc": "You got stuck on this one just now. No rush, let's go step by step.",
+    "block1Title": "Where You Got Stuck",
+    "block2Title": "Why It Felt Hard",
+    "block3Title": "How To Think About It",
+    "block4Title": "Remember Next Time",
+    "ctaPrimary": "I Get It, Give Me 1 Similar Problem",
+    "ctaSecondary": "Explain It In An Easier Way",
+    "footerTip": "Really knowing it is not about nodding now. It is about solving the next one correctly."
+  },
+  "homeworkQuiz": {
+    "title": "Try one problem and see if you really got it",
+    "subtitle": "You just heard the explanation. Now try one similar problem.",
+    "q1Title": "Question 1",
+    "q1Hint": "This one is similar to the last problem. Think about it on your own first.",
+    "submit": "Submit Answer",
+    "backToExplanation": "Back To Explanation",
+    "footerTip": "Getting it wrong is okay. It is better to notice the gap now than on the next homework."
+  },
+  "homeworkQuizResult": {
+    "successTitle": "Nice work. You are basically getting this type now",
+    "successDesc": "You answered the similar problem correctly, so this looks more like real understanding than just recognizing the explanation.",
+    "successPrimary": "Try Another Problem",
+    "successSecondary": "Add To Mastered",
+    "failTitle": "This type of problem still needs more practice",
+    "failDesc": "That is okay. It means the key step is not solid yet. Go back, try a simpler explanation, and test again.",
+    "failPrimary": "Review Explanation",
+    "failSecondary": "Explain It Differently"
+  },
+  "homeworkHistory": {
+    "title": "Problems From Today",
+    "groupPending": "Still Need Practice",
+    "groupDone": "Already Understood",
+    "emptyTitle": "No problems worked on today",
+    "emptyDesc": "If homework gets stuck, snap the problem to begin.",
+    "cardReview": "Review Explanation",
+    "cardRetry": "Try One More"
+  },
+  "homeworkParent": {
+    "title": "For Parents",
+    "summaryTotal": "Handled {{count}} problem(s) today",
+    "summarySolved": "Clearly explained and answered correctly: {{count}}",
+    "summaryNeedMore": "Main area that still needs practice: {{reason}}",
+    "summaryFocus": "Recommended focus: {{topic}}",
+    "footerTip": "We care more about whether this kind of problem is understood than how long was spent today."
   }
 }

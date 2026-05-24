@@ -89,8 +89,9 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
       { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS' },
       { id: 'tts-1', name: 'TTS-1' },
       { id: 'tts-1-hd', name: 'TTS-1 HD' },
+      { id: 'tts', name: 'Qiniu TTS' },
     ],
-    defaultModelId: 'gpt-4o-mini-tts',
+    defaultModelId: 'tts',
     voices: [
       // Recommended voices (best quality)
       {
@@ -110,6 +111,13 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
         compatibleModels: ['gpt-4o-mini-tts'],
       },
       // Standard voices (alphabetical)
+      {
+        id: 'xiaoxin',
+        name: 'Qiniu Xiaoxin',
+        language: 'zh',
+        gender: 'neutral',
+        description: 'voiceXiaoxin',
+      },
       {
         id: 'alloy',
         name: 'Alloy',
@@ -190,6 +198,28 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     ],
     supportedFormats: ['mp3', 'opus', 'aac', 'flac'],
     speedRange: { min: 0.25, max: 4.0, default: 1.0 },
+  },
+
+  'siliconflow-tts': {
+    id: 'siliconflow-tts',
+    name: 'SiliconFlow TTS',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.siliconflow.cn/v1',
+    models: [
+      { id: 'FunAudioLLM/CosyVoice2-0.5B', name: 'CosyVoice2 0.5B' },
+    ],
+    defaultModelId: 'FunAudioLLM/CosyVoice2-0.5B',
+    voices: [
+      {
+        id: 'FunAudioLLM/CosyVoice2-0.5B:alex',
+        name: 'Alex',
+        language: 'zh',
+        gender: 'male',
+        description: 'Alex Voice',
+      },
+    ],
+    supportedFormats: ['mp3', 'wav', 'flac', 'opus'],
+    speedRange: { min: 0.5, max: 2.0, default: 1.0 },
   },
 
   'azure-tts': {
@@ -1248,6 +1278,7 @@ export const ASR_PROVIDERS: Record<BuiltInASRProviderId, ASRProviderConfig> = {
  * Used when switching providers or testing a non-active provider.
  */
 export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
+  'siliconflow-tts': 'FunAudioLLM/CosyVoice2-0.5B:alex',
   'openai-tts': 'alloy',
   'azure-tts': 'zh-CN-XiaoxiaoNeural',
   'glm-tts': 'tongtong',
@@ -1261,7 +1292,8 @@ export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
 };
 
 export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
-  'openai-tts': 'gpt-4o-mini-tts',
+  'siliconflow-tts': '',
+  'openai-tts': 'tts-1',
   'azure-tts': '',
   'glm-tts': 'glm-tts',
   'qwen-tts': 'qwen3-tts-flash',

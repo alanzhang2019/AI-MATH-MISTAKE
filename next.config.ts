@@ -7,6 +7,22 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: '200mb',
   },
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        ...config.watchOptions,
+        ignored: [
+          '**/.git/**',
+          '**/.next/**',
+          'D:/DumpStack.log.tmp',
+          'D:/pagefile.sys',
+          'D:/System Volume Information/**',
+        ],
+      };
+    }
+
+    return config;
+  },
   async headers() {
     const extraAncestors = process.env.ALLOWED_FRAME_ANCESTORS?.trim();
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";

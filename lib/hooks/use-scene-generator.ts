@@ -10,6 +10,7 @@ import type { AgentInfo } from '@/lib/generation/generation-pipeline';
 import type { Scene } from '@/lib/types/stage';
 import type { SpeechAction } from '@/lib/types/action';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
+import { buildClientTTSRequestConfig } from '@/lib/audio/build-client-tts-request';
 import { getVoxCPMProviderOptions } from '@/lib/audio/voxcpm-voices';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { createLogger } from '@/lib/logger';
@@ -137,6 +138,7 @@ export async function generateAndStoreTTS(
   if (settings.ttsProviderId === 'browser-native-tts') return;
 
   const ttsProviderConfig = settings.ttsProvidersConfig?.[settings.ttsProviderId];
+  const requestConfig = buildClientTTSRequestConfig(settings.ttsProviderId, ttsProviderConfig);
   const providerOptions =
     settings.ttsProviderId === 'voxcpm-tts'
       ? {
@@ -154,12 +156,8 @@ export async function generateAndStoreTTS(
       ttsModelId: ttsProviderConfig?.modelId,
       ttsVoice: settings.ttsVoice,
       ttsSpeed: settings.ttsSpeed,
-      ttsApiKey: ttsProviderConfig?.apiKey || undefined,
-      ttsBaseUrl:
-        ttsProviderConfig?.serverBaseUrl ||
-        ttsProviderConfig?.baseUrl ||
-        ttsProviderConfig?.customDefaultBaseUrl ||
-        undefined,
+      ttsApiKey: requestConfig.ttsApiKey,
+      ttsBaseUrl: requestConfig.ttsBaseUrl,
       ttsProviderOptions: providerOptions,
     }),
     signal,
@@ -316,6 +314,55 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         log.warn('Media generation error:', err);
       });
 
+      // Pre-fetch all scene contents concurrently to minimize waiting time between pages.
+      // This allows the slow Vision LLM calls to happen in parallel, while keeping
+      // the Actions generation sequential to preserve previousSpeeches coherence.
+      // We use a concurrency limit of 1 to avoid hitting third-party API rate limits (e.g., RPM limits).
+      const CONCURRENCY_LIMIT = 1;
+      let activeCount = 0;
+      const fetchQueue: Array<() => void> = [];
+
+      const limitConcurrency = async <T>(fn: () => Promise<T>): Promise<T> => {
+        if (activeCount >= CONCURRENCY_LIMIT) {
+          await new Promise<void>((resolve) => fetchQueue.push(resolve));
+        }
+        activeCount++;
+        try {
+          return await fn();
+        } finally {
+          activeCount--;
+          if (fetchQueue.length > 0) {
+            const next = fetchQueue.shift();
+            next?.();
+          }
+        }
+      };
+
+      const contentPromises = new Map<string, Promise<SceneContentResult>>();
+      for (const outline of pending) {
+        contentPromises.set(
+          outline.id,
+          limitConcurrency(() =>
+            fetchSceneContent(
+              {
+                outline,
+                allOutlines: outlines,
+                stageId: stage.id,
+                pdfImages: params.pdfImages,
+                imageMapping: params.imageMapping,
+                stageInfo: params.stageInfo,
+                agents: params.agents,
+                languageDirective: params.languageDirective,
+              },
+              signal,
+            )
+          ).catch((error) => ({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          }))
+        );
+      }
+
       // Get previousSpeeches from last completed scene
       let previousSpeeches: string[] = [];
       const sortedScenes = [...scenes].sort((a, b) => a.order - b.order);
@@ -338,21 +385,9 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
           store.getState().setCurrentGeneratingOrder(outline.order);
 
-          // Step 1: Generate content
+          // Step 1: Generate content (await the pre-fetched promise)
           options.onPhaseChange?.('content', outline);
-          const contentResult = await fetchSceneContent(
-            {
-              outline,
-              allOutlines: outlines,
-              stageId: stage.id,
-              pdfImages: params.pdfImages,
-              imageMapping: params.imageMapping,
-              stageInfo: params.stageInfo,
-              agents: params.agents,
-              languageDirective: params.languageDirective,
-            },
-            signal,
-          );
+          const contentResult = await contentPromises.get(outline.id)!;
 
           if (!contentResult.success || !contentResult.content) {
             if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
@@ -543,9 +578,9 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         }
 
         // Step 3: TTS
-        const settings = useSettingsStore.getState();
-        if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
-          const ttsResult = await generateTTSForScene(
+          const settings = useSettingsStore.getState();
+          if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
+            const ttsResult = await generateTTSForScene(
             actionsResult.scene,
             params.languageDirective || params.stageInfo.language,
             signal,

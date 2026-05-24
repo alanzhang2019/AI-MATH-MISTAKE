@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ import { SceneRenderer } from '@/components/stage/scene-renderer';
 import { SceneProvider } from '@/lib/contexts/scene-context';
 import { Whiteboard } from '@/components/whiteboard';
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
+import { shouldShowCanvasPlayHint } from '@/lib/canvas/play-hint-visibility';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -21,6 +22,8 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly isCourseComplete?: boolean;
   readonly isGenerationFailed?: boolean;
   readonly onRetryGeneration?: () => void;
+  readonly hasVisibleLectureContent?: boolean;
+  readonly whiteboardEnabled?: boolean;
 }
 
 export function CanvasArea({
@@ -48,15 +51,60 @@ export function CanvasArea({
   isCourseComplete,
   isGenerationFailed,
   onRetryGeneration,
+  hasVisibleLectureContent = false,
+  whiteboardEnabled = true,
 }: CanvasAreaProps) {
   const { t } = useI18n();
   const showControls = mode === 'playback' && !whiteboardOpen;
-  const showPlayHint =
-    showControls &&
-    engineState !== 'playing' &&
-    currentScene?.type === 'slide' &&
-    !isLiveSession &&
-    !isPendingScene;
+  const showPlayHint = shouldShowCanvasPlayHint({
+    showControls,
+    engineState,
+    sceneType: currentScene?.type,
+    isLiveSession: isLiveSession ?? false,
+    isPendingScene: Boolean(isPendingScene),
+    hasVisibleLectureContent,
+  });
+
+  useEffect(() => {
+    // #region debug-point E:canvas-visibility
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'mistake-classroom-regression',
+        runId: 'pre',
+        hypothesisId: 'E',
+        location: 'components/canvas/canvas-area.tsx:68',
+        msg: '[DEBUG] canvas visibility snapshot',
+        data: {
+          currentSceneId: currentScene?.id ?? null,
+          currentSceneType: currentScene?.type ?? null,
+          showPlayHint,
+          whiteboardOpen,
+          whiteboardEnabled,
+          isPendingScene: Boolean(isPendingScene),
+          isCourseComplete: Boolean(isCourseComplete),
+          isGenerationFailed: Boolean(isGenerationFailed),
+          hasVisibleLectureContent,
+          isLiveSession,
+          engineState,
+        },
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [
+    currentScene?.id,
+    currentScene?.type,
+    engineState,
+    hasVisibleLectureContent,
+    isCourseComplete,
+    isGenerationFailed,
+    isLiveSession,
+    isPendingScene,
+    showPlayHint,
+    whiteboardEnabled,
+    whiteboardOpen,
+  ]);
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
@@ -89,17 +137,17 @@ export function CanvasArea({
         className={cn(
           'flex-1 min-h-0 relative overflow-hidden flex items-center justify-center p-2 transition-colors duration-500',
           currentScene?.type === 'interactive'
-            ? 'bg-blue-50/30 dark:bg-blue-900/10'
-            : 'bg-gray-50/30 dark:bg-gray-900/30',
+            ? 'bg-blue-100/50 dark:bg-blue-950/20'
+            : 'bg-slate-200/95 dark:bg-slate-950/70',
         )}
       >
         <div
           className={cn(
-            'aspect-[16/9] h-full max-h-full max-w-full bg-white dark:bg-gray-800 shadow-2xl rounded-lg overflow-hidden relative transition-all duration-700',
+            'aspect-[16/9] h-full max-h-full max-w-full bg-white dark:bg-gray-800 shadow-2xl rounded-lg overflow-hidden relative transition-all duration-700 border-2 border-slate-400 dark:border-slate-600',
             showControls && !isLiveSession && currentScene?.type === 'slide' && 'cursor-pointer',
             currentScene?.type === 'interactive'
-              ? 'shadow-blue-200/50 dark:shadow-blue-900/50 ring-1 ring-blue-900/5 dark:ring-blue-500/10'
-              : 'shadow-gray-200/50 dark:shadow-gray-800/50 ring-1 ring-gray-950/5 dark:ring-white/5',
+              ? 'shadow-blue-200/60 dark:shadow-blue-900/50 ring-2 ring-blue-300/40 dark:ring-blue-500/20'
+              : 'shadow-slate-400/60 dark:shadow-slate-950/70 ring-2 ring-white/80 dark:ring-slate-800/90',
           )}
           onClick={handleSlideClick}
         >
@@ -263,6 +311,7 @@ export function CanvasArea({
           onNextSlide={onNextSlide}
           onPlayPause={onPlayPause}
           onWhiteboardClose={onWhiteboardClose}
+          whiteboardEnabled={whiteboardEnabled}
           isPresenting={isPresenting}
           onTogglePresentation={onTogglePresentation}
           showStopDiscussion={showStopDiscussion}

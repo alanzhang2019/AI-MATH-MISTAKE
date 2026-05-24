@@ -1054,5 +1054,84 @@
     "title": "请输入访问码",
     "placeholder": "访问码",
     "error": "访问码错误，请重试。"
+  },
+  "homeworkHome": {
+    "title": "作业不会做，拍一下马上讲明白",
+    "subtitle": "不会直接只给答案，会一步一步讲清楚这题该怎么想。",
+    "ctaPrimary": "拍一道作业题",
+    "ctaSecondary": "看看今天做过的题",
+    "sceneHint": "适合小学数学作业卡题场景",
+    "value1": "先讲思路，再看会不会做",
+    "value2": "讲完再练 1 题，确认真的学会",
+    "value3": "做过的题会自动帮你记住",
+    "uploadHint": "支持拍作业、练习册、试卷上的单道数学题",
+    "uploadTip": "尽量一次只拍一道题，讲解更准确",
+    "parentHint": "给家长看的不是“讲了多少”，而是“这类题会了没有”。",
+    "emptyTitle": "还没有做过的题",
+    "emptyDesc": "拍一道题开始试试，先解决今天作业里卡住的一题。"
+  },
+  "homeworkLoading": {
+    "title": "正在看这道题……",
+    "desc": "先帮你找出它在考什么，再用容易懂的方法讲清楚。"
+  },
+  "homeworkRecognize": {
+    "title": "先确认一下题目",
+    "desc": "我先识别出了这道题，你看对不对。",
+    "confirm": "识别正确，继续",
+    "retry": "识别有误，重新上传",
+    "failTitle": "这次没有看清楚题目",
+    "failDesc": "试试重新拍一张，尽量拍清楚一点，只保留一道题。"
+  },
+  "homeworkCommon": {
+    "systemError": "这次没有处理成功，换一道题或稍后再试",
+    "retry": "再试一次",
+    "backHome": "返回首页"
+  },
+  "homeworkResult": {
+    "title": "这题我来陪你一起弄明白",
+    "desc": "这道题刚刚卡住了，先别急，我们一步一步来。",
+    "block1Title": "你卡住的地方",
+    "block2Title": "为什么会卡住",
+    "block3Title": "这题该怎么想",
+    "block4Title": "下次遇到时记住",
+    "ctaPrimary": "我懂了，做 1 道同类题",
+    "ctaSecondary": "还是有点不懂，再讲简单一点",
+    "footerTip": "会不会，不是看现在点头，而是看下一题能不能做对。"
+  },
+  "homeworkQuiz": {
+    "title": "试一题，看看是不是真的会了",
+    "subtitle": "刚刚那道题听懂了，再做 1 道同类题试试看。",
+    "q1Title": "第 1 题",
+    "q1Hint": "这题和刚才很像，先自己想一想。",
+    "submit": "提交答案",
+    "backToExplanation": "回看刚才的讲解",
+    "footerTip": "做错没关系，现在发现问题，比下次作业再错更好。"
+  },
+  "homeworkQuizResult": {
+    "successTitle": "做得不错，这类题你已经基本会了",
+    "successDesc": "你刚刚做对了这道同类题，说明这次不是“看懂了”，而是真的开始会做了。",
+    "successPrimary": "继续拍一道题",
+    "successSecondary": "加入我的已掌握",
+    "failTitle": "这类题你还容易卡住",
+    "failDesc": "没关系，说明刚才那一步还没完全吃透。我们回去换一种更简单的讲法，再试一次。",
+    "failPrimary": "回看讲解",
+    "failSecondary": "换个讲法再讲"
+  },
+  "homeworkHistory": {
+    "title": "今天做过的题",
+    "groupPending": "还要再练",
+    "groupDone": "已经会了",
+    "emptyTitle": "今天还没有做过的题",
+    "emptyDesc": "遇到作业不会的题，拍一下就能开始。",
+    "cardReview": "再看一遍讲解",
+    "cardRetry": "再练一题"
+  },
+  "homeworkParent": {
+    "title": "给家长看",
+    "summaryTotal": "今天一共处理了 {{count}} 道题",
+    "summarySolved": "已经讲明白并做对了 {{count}} 道",
+    "summaryNeedMore": "还需要再练的主要是：{{reason}}",
+    "summaryFocus": "建议重点关注：{{topic}}",
+    "footerTip": "我们更关注“这类题会了没有”，不是“今天做了多久”。"
   }
 }

@@ -464,6 +464,9 @@ const useCanvasStoreBase = create<CanvasState>((set, get) => ({
       // Preserve viewport settings
       viewportSize: get().viewportSize,
       viewportRatio: get().viewportRatio,
+      canvasScale: get().canvasScale,
+      canvasPercentage: get().canvasPercentage,
+      canvasDragged: get().canvasDragged,
     });
   },
 }));

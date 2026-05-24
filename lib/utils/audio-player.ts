@@ -11,6 +11,19 @@ import { createLogger } from '@/lib/logger';
 
 const log = createLogger('AudioPlayer');
 
+function isPlaybackInterruptionError(error: unknown) {
+  if (!(error instanceof DOMException || error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    error.name === 'AbortError' ||
+    message.includes('interrupted by a call to pause') ||
+    message.includes('interrupted by a new load request')
+  );
+}
+
 /**
  * Audio player implementation
  */
@@ -28,21 +41,30 @@ export class AudioPlayer {
    * @returns true if audio started playing, false if no audio (TTS disabled or not generated)
    */
   public async play(audioId: string, audioUrl?: string): Promise<boolean> {
+    console.log('[DEBUG AudioPlayer] play() called with audioId:', audioId);
     try {
       // 1. Try audioUrl first (server-generated TTS)
       if (audioUrl) {
         this.stop();
         this.audio = new Audio();
-        this.audio.src = audioUrl;
-        if (this.muted) this.audio.volume = 0;
-        else this.audio.volume = this.volume;
-        this.audio.defaultPlaybackRate = this.playbackRate;
-        this.audio.playbackRate = this.playbackRate;
-        this.audio.addEventListener('ended', () => {
+        const playbackAudio = this.audio;
+        playbackAudio.src = audioUrl;
+        if (this.muted) playbackAudio.volume = 0;
+        else playbackAudio.volume = this.volume;
+        playbackAudio.defaultPlaybackRate = this.playbackRate;
+        playbackAudio.playbackRate = this.playbackRate;
+        playbackAudio.addEventListener('ended', () => {
           this.onEndedCallback?.();
         });
-        await this.audio.play();
-        this.audio.playbackRate = this.playbackRate;
+        try {
+          await playbackAudio.play();
+        } catch (error) {
+          if (isPlaybackInterruptionError(error) && (this.audio !== playbackAudio || playbackAudio.paused)) {
+            return false;
+          }
+          throw error;
+        }
+        playbackAudio.playbackRate = this.playbackRate;
         return true;
       }
 
@@ -59,27 +81,36 @@ export class AudioPlayer {
 
       // Create audio element
       this.audio = new Audio();
+      const playbackAudio = this.audio;
 
       // Set audio source
       const blobUrl = URL.createObjectURL(audioRecord.blob);
-      this.audio.src = blobUrl;
-      if (this.muted) this.audio.volume = 0;
-      else this.audio.volume = this.volume;
+      playbackAudio.src = blobUrl;
+      if (this.muted) playbackAudio.volume = 0;
+      else playbackAudio.volume = this.volume;
 
       // Apply playback rate
-      this.audio.defaultPlaybackRate = this.playbackRate;
-      this.audio.playbackRate = this.playbackRate;
+      playbackAudio.defaultPlaybackRate = this.playbackRate;
+      playbackAudio.playbackRate = this.playbackRate;
 
       // Set ended callback
-      this.audio.addEventListener('ended', () => {
+      playbackAudio.addEventListener('ended', () => {
         URL.revokeObjectURL(blobUrl);
         this.onEndedCallback?.();
       });
 
       // Play
-      await this.audio.play();
+      try {
+        await playbackAudio.play();
+      } catch (error) {
+        if (isPlaybackInterruptionError(error) && (this.audio !== playbackAudio || playbackAudio.paused)) {
+          URL.revokeObjectURL(blobUrl);
+          return false;
+        }
+        throw error;
+      }
       // Re-apply after play() — some browsers reset during load
-      this.audio.playbackRate = this.playbackRate;
+      playbackAudio.playbackRate = this.playbackRate;
       return true;
     } catch (error) {
       log.error('Failed to play audio:', error);

@@ -77,6 +77,7 @@ interface RoundtableProps {
   readonly currentSceneIndex?: number;
   readonly scenesCount?: number;
   readonly whiteboardOpen?: boolean;
+  readonly whiteboardEnabled?: boolean;
   readonly sidebarCollapsed?: boolean;
   readonly chatCollapsed?: boolean;
   readonly onToggleSidebar?: () => void;
@@ -162,6 +163,7 @@ export function Roundtable({
   currentSceneIndex = 0,
   scenesCount = 1,
   whiteboardOpen = false,
+  whiteboardEnabled = true,
   sidebarCollapsed,
   chatCollapsed,
   onToggleSidebar,
@@ -627,6 +629,7 @@ export function Roundtable({
       }
       isLiveSession={isStreaming || isTopicPending || engineMode === 'live'}
       whiteboardOpen={whiteboardOpen}
+      whiteboardEnabled={whiteboardEnabled}
       sidebarCollapsed={sidebarCollapsed}
       chatCollapsed={chatCollapsed}
       onToggleSidebar={onToggleSidebar}
