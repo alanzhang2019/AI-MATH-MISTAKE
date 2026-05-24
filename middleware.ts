@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyAdminToken } from '@/lib/admin/auth';
 
 /** Convert string to Uint8Array */
 function encode(str: string): Uint8Array {
@@ -42,15 +43,51 @@ async function verifyToken(token: string, accessCode: string): Promise<boolean> 
 }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Protect admin API routes (excluding login)
+  if (pathname.startsWith('/api/admin') && pathname !== '/api/admin/login') {
+    const adminToken = request.cookies.get('admin_token');
+    if (!adminToken?.value) {
+      return NextResponse.json(
+        { success: false, errorCode: 'UNAUTHORIZED', error: 'Admin access required' },
+        { status: 401 },
+      );
+    }
+    try {
+      await verifyAdminToken(adminToken.value);
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, errorCode: 'UNAUTHORIZED', error: 'Invalid admin token' },
+        { status: 401 },
+      );
+    }
+  }
+
+  // Protect admin page routes (excluding login)
+  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
+    const adminToken = request.cookies.get('admin_token');
+    let isValid = false;
+    if (adminToken?.value) {
+      try {
+        await verifyAdminToken(adminToken.value);
+        isValid = true;
+      } catch (error) {
+        isValid = false;
+      }
+    }
+    if (!isValid) {
+      return NextResponse.redirect(new URL('/admin/login', request.url));
+    }
+  }
+
   const accessCode = process.env.ACCESS_CODE;
   if (!accessCode) {
     return NextResponse.next();
   }
 
-  const { pathname } = request.nextUrl;
-
   // Whitelist: access-code endpoints, health check
-  if (pathname.startsWith('/api/access-code/') || pathname === '/api/health') {
+  if (pathname.startsWith('/api/access-code/') || pathname === '/api/health' || pathname.startsWith('/api/admin/')) {
     return NextResponse.next();
   }
 
