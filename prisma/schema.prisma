@@ -46,3 +46,9 @@ model KnowledgeConcept {
   name     String          @unique
   mistakes MistakeRecord[] @relation("MistakeToConcept")
 }
+
+model SystemConfig {
+  key       String   @id
+  value     String   // Stored as JSON string
+  updatedAt DateTime @updatedAt
+}
